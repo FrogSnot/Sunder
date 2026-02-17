@@ -23,3 +23,10 @@ pub enum SearchSource {
     Local,
     Remote,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+}

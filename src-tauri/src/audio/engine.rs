@@ -1,5 +1,5 @@
-use std::io;
-use std::process::Command;
+use std::io::{self, BufRead};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -95,7 +95,7 @@ fn audio_thread(
                 eprintln!("[sunder] starting playback for: {video_id}");
                 let vol = *volume.read().unwrap();
 
-                match start_streaming(&video_id, &state, &stream_handle, vol) {
+                match start_streaming(&video_id, &state, &stream_handle, vol, &app) {
                     Ok(new_sink) => {
                         eprintln!("[sunder] playback started");
                         sink = Some(new_sink);
@@ -132,8 +132,15 @@ fn audio_thread(
                     s.set_volume(v);
                 }
             }
-            Ok(AudioCommand::Seek(_secs)) => {
-                // Seek on a piped stream is non-trivial; deferred
+            Ok(AudioCommand::Seek(secs)) => {
+                if let Some(ref s) = sink {
+                    let dur = Duration::from_secs_f64(secs.max(0.0));
+                    if let Err(e) = s.try_seek(dur) {
+                        eprintln!("[sunder] seek failed: {e}");
+                    } else {
+                        position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                    }
+                }
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
@@ -163,6 +170,7 @@ fn start_streaming(
     state: &Arc<RwLock<PlaybackState>>,
     stream_handle: &rodio::OutputStreamHandle,
     volume: f32,
+    app: &tauri::AppHandle,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -171,14 +179,18 @@ fn start_streaming(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| crate::error::AppError::Io(e))?;
 
-    // yt-dlp outputs to <video_id>.%(ext)s; with --audio-format mp3 the final ext is mp3
+    // yt-dlp outputs to <video_id>.%(ext)s with --audio-format mp3 the final ext is mp3
     let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
 
     *state.write().unwrap() = PlaybackState::Buffering;
 
     if !expected_path.exists() {
-        let output = Command::new(&bin)
+        let _ = app.emit("download-progress", serde_json::json!({
+            "percent": 0.0, "stage": "preparing"
+        }));
+
+        let mut child = Command::new(&bin)
             .args([
                 &url,
                 "--extract-audio",
@@ -186,16 +198,33 @@ fn start_streaming(
                 "--audio-quality", "2",
                 "-o", out_template.to_str().unwrap_or_default(),
                 "--no-playlist",
-                "--no-warnings",
-                "--no-progress",
+                "--newline",
+                "--concurrent-fragments", "4",
             ])
-            .output()
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}")))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(stderr) = child.stderr.take() {
+            for line in io::BufReader::new(stderr).lines().flatten() {
+                if let Some(pct) = parse_download_pct(&line) {
+                    let _ = app.emit("download-progress", serde_json::json!({
+                        "percent": pct, "stage": "downloading"
+                    }));
+                } else if line.contains("[ExtractAudio]") {
+                    let _ = app.emit("download-progress", serde_json::json!({
+                        "percent": 100.0, "stage": "converting"
+                    }));
+                }
+            }
+        }
+
+        let status = child.wait()
+            .map_err(|e| crate::error::AppError::Extraction(format!("yt-dlp wait: {e}")))?;
+        if !status.success() {
             return Err(crate::error::AppError::Extraction(
-                format!("yt-dlp failed ({}): {}", output.status, stderr.trim()),
+                format!("yt-dlp failed ({})", status),
             ));
         }
 
@@ -247,4 +276,10 @@ fn emit_state(
             state: state.read().unwrap().to_string(),
         },
     );
+}
+
+fn parse_download_pct(line: &str) -> Option<f64> {
+    let content = line.trim().strip_prefix("[download]")?;
+    let pct_end = content.find('%')?;
+    content[..pct_end].trim().parse::<f64>().ok()
 }

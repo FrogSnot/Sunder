@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::error::AppError;
-use crate::models::Track;
+use crate::models::{Playlist, Track};
 
 pub struct SearchCache {
     conn: Mutex<Connection>,
@@ -35,7 +35,6 @@ impl SearchCache {
                  content_rowid='rowid'
              );
 
-             -- Keep FTS in sync via triggers
              CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
                  INSERT INTO tracks_fts(rowid, title, artist)
                  VALUES (new.rowid, new.title, new.artist);
@@ -49,7 +48,29 @@ impl SearchCache {
                  VALUES ('delete', old.rowid, old.title, old.artist);
                  INSERT INTO tracks_fts(rowid, title, artist)
                  VALUES (new.rowid, new.title, new.artist);
-             END;",
+             END;
+
+             CREATE TABLE IF NOT EXISTS playlists (
+                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name     TEXT NOT NULL,
+                 created  TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+
+             CREATE TABLE IF NOT EXISTS playlist_tracks (
+                 playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                 track_id    TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                 position    INTEGER NOT NULL DEFAULT 0,
+                 added       TEXT NOT NULL DEFAULT (datetime('now')),
+                 PRIMARY KEY (playlist_id, track_id)
+             );
+
+             CREATE TABLE IF NOT EXISTS listen_history (
+                 id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                 track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                 played   TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_history_track ON listen_history(track_id);
+             CREATE INDEX IF NOT EXISTS idx_history_played ON listen_history(played DESC);",
         )?;
 
         Ok(Self { conn: Mutex::new(conn) })
@@ -102,6 +123,141 @@ impl SearchCache {
             .filter_map(|r| r.ok())
             .collect();
 
+        Ok(tracks)
+    }
+
+    pub fn create_playlist(&self, name: &str) -> Result<Playlist, AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT INTO playlists (name) VALUES (?1)", params![name])?;
+        let id = conn.last_insert_rowid();
+        Ok(Playlist { id, name: name.to_string(), track_count: 0 })
+    }
+
+    pub fn list_playlists(&self) -> Result<Vec<Playlist>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT p.id, p.name, COUNT(pt.track_id)
+             FROM playlists p
+             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+             GROUP BY p.id ORDER BY p.created DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(Playlist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)? })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    pub fn delete_playlist(&self, playlist_id: i64) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
+        Ok(())
+    }
+
+    pub fn rename_playlist(&self, playlist_id: i64, name: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET name = ?2 WHERE id = ?1",
+            params![playlist_id, name],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_to_playlist(&self, playlist_id: i64, track_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        let pos: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+            |r| r.get(0),
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+            params![playlist_id, track_id, pos],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_from_playlist(&self, playlist_id: i64, track_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
+            params![playlist_id, track_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_playlist_tracks(&self, playlist_id: i64) -> Result<Vec<Track>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT t.id, t.title, t.artist, t.thumbnail, t.duration
+             FROM playlist_tracks pt
+             JOIN tracks t ON t.id = pt.track_id
+             WHERE pt.playlist_id = ?1
+             ORDER BY pt.position",
+        )?;
+        let tracks = stmt
+            .query_map(params![playlist_id], |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    stream_url: None,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(tracks)
+    }
+
+    pub fn record_listen(&self, track_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO listen_history (track_id) VALUES (?1)",
+            params![track_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn top_artists(&self, limit: usize) -> Result<Vec<String>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT t.artist, COUNT(*) as cnt
+             FROM listen_history h
+             JOIN tracks t ON t.id = h.track_id
+             GROUP BY t.artist ORDER BY cnt DESC LIMIT ?1",
+        )?;
+        let artists = stmt
+            .query_map(params![limit as i64], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(artists)
+    }
+
+    pub fn recently_played(&self, limit: usize) -> Result<Vec<Track>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT t.id, t.title, t.artist, t.thumbnail, t.duration
+             FROM listen_history h
+             JOIN tracks t ON t.id = h.track_id
+             ORDER BY h.played DESC LIMIT ?1",
+        )?;
+        let tracks = stmt
+            .query_map(params![limit as i64], |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    stream_url: None,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
         Ok(tracks)
     }
 }

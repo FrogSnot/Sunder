@@ -19,6 +19,23 @@
   {#if player.currentTrack}
     <ProgressBar />
 
+    {#if player.isBuffering && player.downloadStage}
+      <div class="download-status">
+        {#if player.downloadStage === "downloading"}
+          <div class="dl-bar">
+            <div class="dl-fill" style="width: {player.downloadPercent}%"></div>
+          </div>
+          <span class="dl-text">Downloading {Math.round(player.downloadPercent)}%</span>
+        {:else if player.downloadStage === "converting"}
+          <div class="dl-spinner"></div>
+          <span class="dl-text">Converting audio...</span>
+        {:else}
+          <div class="dl-spinner"></div>
+          <span class="dl-text">Preparing...</span>
+        {/if}
+      </div>
+    {/if}
+
     <div class="player-body">
       <div class="now-playing">
         <img
@@ -193,6 +210,44 @@
     font-size: 0.75rem;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .download-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 24px 4px;
+  }
+
+  .dl-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bg-overlay);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .dl-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 200ms ease;
+  }
+
+  .dl-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg-overlay);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+
+  .dl-text {
+    font-size: 0.7rem;
+    color: var(--text-muted);
     white-space: nowrap;
   }
 </style>

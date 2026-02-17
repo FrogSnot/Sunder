@@ -1,0 +1,110 @@
+<script lang="ts">
+  import { nav, type Tab } from "../state/nav.svelte";
+
+  const tabs: { id: Tab; label: string; icon: string }[] = [
+    { id: "search", label: "Search", icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" },
+    { id: "explore", label: "Explore", icon: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" },
+    { id: "playlists", label: "Playlists", icon: "M9 18V5l12-2v13M6 18a3 3 0 100-6 3 3 0 000 6zM18 16a3 3 0 100-6 3 3 0 000 6z" },
+  ];
+
+  function setTab(tab: Tab) {
+    nav.activeTab = tab;
+    if (tab !== "playlist-detail") {
+      nav.activePlaylistId = null;
+    }
+  }
+
+  function isActive(tab: Tab): boolean {
+    if (tab === "playlists") return nav.activeTab === "playlists" || nav.activeTab === "playlist-detail";
+    return nav.activeTab === tab;
+  }
+</script>
+
+<nav class="sidebar">
+  <div class="brand">
+    <span class="brand-icon">&#9830;</span>
+    <span class="brand-name">Sunder</span>
+  </div>
+
+  <div class="nav-items">
+    {#each tabs as tab (tab.id)}
+      <button
+        class="nav-btn"
+        class:active={isActive(tab.id)}
+        onclick={() => setTab(tab.id)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d={tab.icon} />
+        </svg>
+        <span>{tab.label}</span>
+      </button>
+    {/each}
+  </div>
+</nav>
+
+<style>
+  .sidebar {
+    width: 200px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--bg-overlay);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    padding: 16px 0;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 20px 20px;
+  }
+
+  .brand-icon {
+    font-size: 1.4rem;
+    color: var(--accent);
+  }
+
+  .brand-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+  }
+
+  .nav-items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: background var(--transition), color var(--transition);
+  }
+
+  .nav-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+
+  .nav-btn.active {
+    background: var(--bg-elevated);
+    color: var(--accent);
+  }
+
+  .nav-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+</style>

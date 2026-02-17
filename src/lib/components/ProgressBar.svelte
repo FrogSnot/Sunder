@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { seek } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
 
   let isDragging = $state(false);
@@ -7,6 +8,7 @@
 
   function handlePointerDown(e: PointerEvent) {
     isDragging = true;
+    player.isSeeking = true;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     updatePosition(e);
   }
@@ -17,8 +19,12 @@
     if (isDragging) updatePosition(e);
   }
 
-  function handlePointerUp() {
-    isDragging = false;
+  async function handlePointerUp() {
+    if (isDragging) {
+      isDragging = false;
+      await seek(player.currentTime);
+      setTimeout(() => { player.isSeeking = false; }, 200);
+    }
   }
 
   function handlePointerLeave() {
@@ -28,7 +34,6 @@
   function updatePosition(e: PointerEvent) {
     const rect = barEl.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    // Seek would go here once backend supports it
     player.currentTime = pct * player.duration;
   }
 

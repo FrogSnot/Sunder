@@ -36,6 +36,15 @@ pub fn run() {
             ipc::commands::set_volume,
             ipc::commands::seek,
             ipc::commands::get_playback_state,
+            ipc::commands::create_playlist,
+            ipc::commands::list_playlists,
+            ipc::commands::delete_playlist,
+            ipc::commands::rename_playlist,
+            ipc::commands::add_to_playlist,
+            ipc::commands::remove_from_playlist,
+            ipc::commands::get_playlist_tracks,
+            ipc::commands::get_recently_played,
+            ipc::commands::get_explore,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");
