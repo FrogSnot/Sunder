@@ -21,6 +21,10 @@
 
   onMount(() => { refreshPlaylists(); });
 
+  $effect(() => {
+    if (nav.activeTab === "playlists") refreshPlaylists();
+  });
+
   async function refreshPlaylists() {
     try {
       playlists = await listPlaylists();

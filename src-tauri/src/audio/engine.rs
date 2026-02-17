@@ -201,13 +201,13 @@ fn start_streaming(
                 "--newline",
                 "--concurrent-fragments", "4",
             ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
             .spawn()
             .map_err(|e| crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}")))?;
 
-        if let Some(stderr) = child.stderr.take() {
-            for line in io::BufReader::new(stderr).lines().flatten() {
+        if let Some(stdout) = child.stdout.take() {
+            for line in io::BufReader::new(stdout).lines().flatten() {
                 if let Some(pct) = parse_download_pct(&line) {
                     let _ = app.emit("download-progress", serde_json::json!({
                         "percent": pct, "stage": "downloading"
@@ -215,6 +215,10 @@ fn start_streaming(
                 } else if line.contains("[ExtractAudio]") {
                     let _ = app.emit("download-progress", serde_json::json!({
                         "percent": 100.0, "stage": "converting"
+                    }));
+                } else if line.contains("[youtube]") || line.contains("[info]") {
+                    let _ = app.emit("download-progress", serde_json::json!({
+                        "percent": 0.0, "stage": "extracting"
                     }));
                 }
             }

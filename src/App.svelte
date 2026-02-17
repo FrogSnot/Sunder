@@ -39,8 +39,11 @@
 <style>
   .app-shell {
     display: flex;
-    height: 100%;
+    flex-direction: row;
+    height: 100vh;
+    width: 100vw;
     background: var(--bg-base);
+    overflow: hidden;
   }
 
   .main-area {
@@ -48,6 +51,8 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    height: 100vh;
+    overflow: hidden;
   }
 
   .content {

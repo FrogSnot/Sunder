@@ -45,12 +45,16 @@
 <style>
   .sidebar {
     width: 200px;
+    min-width: 200px;
+    max-width: 200px;
+    height: 100vh;
     background: var(--bg-surface);
     border-right: 1px solid var(--bg-overlay);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
     padding: 16px 0;
+    overflow-y: auto;
   }
 
   .brand {

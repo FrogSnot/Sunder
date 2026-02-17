@@ -29,6 +29,9 @@
         {:else if player.downloadStage === "converting"}
           <div class="dl-spinner"></div>
           <span class="dl-text">Converting audio...</span>
+        {:else if player.downloadStage === "extracting"}
+          <div class="dl-spinner"></div>
+          <span class="dl-text">Fetching stream info...</span>
         {:else}
           <div class="dl-spinner"></div>
           <span class="dl-text">Preparing...</span>

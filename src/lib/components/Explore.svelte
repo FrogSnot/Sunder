@@ -3,10 +3,12 @@
   import { getExplore, playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { exploreCache } from "../state/explore.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
   import type { Track } from "../types";
 
   let sections = $derived(exploreCache.sections);
   let loading = $derived(exploreCache.loading);
+  let ctxMenu: ReturnType<typeof ContextMenu>;
 
   onMount(async () => {
     if (!exploreCache.stale) return;
@@ -41,7 +43,13 @@
   function isActive(track: Track): boolean {
     return player.currentTrack?.id === track.id;
   }
+
+  function handleContext(e: MouseEvent, track: Track) {
+    ctxMenu.open(e, track);
+  }
 </script>
+
+<ContextMenu bind:this={ctxMenu} />
 
 {#if loading}
   <div class="loading">
@@ -64,6 +72,7 @@
               class="card"
               class:active={isActive(track)}
               onclick={() => handlePlay(track)}
+              oncontextmenu={(e) => handleContext(e, track)}
             >
               <img class="card-thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
               <div class="card-info">

@@ -79,8 +79,13 @@ impl SearchCache {
     pub fn upsert_tracks(&self, tracks: &[Track]) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "INSERT OR REPLACE INTO tracks (id, title, artist, thumbnail, duration)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO tracks (id, title, artist, thumbnail, duration)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title,
+                 artist = excluded.artist,
+                 thumbnail = excluded.thumbnail,
+                 duration = excluded.duration",
         )?;
         for t in tracks {
             stmt.execute(params![t.id, t.title, t.artist, t.thumbnail, t.duration_secs])?;
