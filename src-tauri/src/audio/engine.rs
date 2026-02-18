@@ -153,6 +153,7 @@ fn audio_thread(
             } else if *state.read().unwrap() == PlaybackState::Playing {
                 *state.write().unwrap() = PlaybackState::Idle;
                 position_ms.store(0, Ordering::Release);
+                let _ = app.emit("track-finished", ());
                 eprintln!("[sunder] track finished");
             }
         }

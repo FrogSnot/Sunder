@@ -1,4 +1,4 @@
-export type Tab = "search" | "explore" | "playlists" | "playlist-detail";
+export type Tab = "search" | "explore" | "playlists" | "playlist-detail" | "queue";
 
 class NavState {
   activeTab = $state<Tab>("search");
