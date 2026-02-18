@@ -65,8 +65,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1;
-    max-width: 520px;
+    width: 100%;
     background: var(--bg-elevated);
     border-radius: var(--radius);
     padding: 6px 14px;

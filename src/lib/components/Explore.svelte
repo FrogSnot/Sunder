@@ -172,7 +172,7 @@
     gap: 14px;
     padding: 10px 14px;
     border-radius: var(--radius);
-    transition: background 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+    transition: background 200ms ease;
     text-align: left;
     width: 100%;
     animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
@@ -181,12 +181,6 @@
 
   .card:hover {
     background: var(--bg-elevated);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  }
-
-  .card:active {
-    transform: scale(0.99);
   }
 
   .card.active {
