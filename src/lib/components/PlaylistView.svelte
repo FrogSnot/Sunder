@@ -152,8 +152,14 @@
   }
 
   function handleRenameKeydown(e: KeyboardEvent, id: number) {
-    if (e.key === "Enter") commitRename(id);
+    e.stopPropagation();
+    if (e.key === "Enter") { e.preventDefault(); commitRename(id); }
     if (e.key === "Escape") renamingId = null;
+  }
+
+  function handleRenameKeyup(e: KeyboardEvent) {
+    e.stopPropagation();
+    e.preventDefault();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -288,7 +294,7 @@
       <div class="list">
         {#each playlists as p (p.id)}
           <div class="playlist-row">
-            <button class="playlist-btn" onclick={() => openPlaylist(p)}>
+            <button class="playlist-btn" onclick={(e) => { if (renamingId === p.id) e.preventDefault(); else openPlaylist(p); }}>
               <div class="playlist-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 18V5l12-2v13" />
@@ -305,6 +311,7 @@
                     bind:value={renameValue}
                     autofocus
                     onkeydown={(e) => handleRenameKeydown(e, p.id)}
+                    onkeyup={handleRenameKeyup}
                     onblur={() => commitRename(p.id)}
                     onclick={(e) => e.stopPropagation()}
                   />
