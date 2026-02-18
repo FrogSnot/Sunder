@@ -293,7 +293,7 @@ impl SearchCache {
             .collect();
         Ok(ids)
     }
-    
+
     pub fn title_keywords(&self, limit: usize) -> Result<Vec<(String, i64)>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(

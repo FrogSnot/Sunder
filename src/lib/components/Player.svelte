@@ -231,6 +231,16 @@
     color: var(--accent);
   }
 
+  .ctrl-btn.ctrl-sm:disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  .ctrl-btn.ctrl-sm.active-toggle {
+    color: var(--accent);
+  }
+
   .ctrl-btn.ctrl-sm svg {
     width: 14px;
     height: 14px;

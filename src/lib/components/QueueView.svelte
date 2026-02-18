@@ -174,6 +174,8 @@
     font-size: 1.3rem;
     font-weight: 700;
     color: var(--text-primary);
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
   }
 
   .queue-actions {

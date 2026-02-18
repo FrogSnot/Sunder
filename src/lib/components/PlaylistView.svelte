@@ -304,11 +304,12 @@
     padding: 8px 14px;
     font-size: 0.9rem;
     outline: none;
-    transition: border-color var(--transition);
+    transition: border-color 200ms ease, box-shadow 300ms ease;
   }
 
   .create-row input:focus {
     border-color: var(--accent-dim);
+    box-shadow: 0 0 16px rgba(224, 168, 32, 0.08);
   }
 
   .create-btn {
@@ -448,6 +449,8 @@
     font-size: 1.3rem;
     font-weight: 700;
     color: var(--text-primary);
+    border-left: 3px solid var(--accent);
+    padding-left: 10px;
   }
 
   .play-all-btn {
