@@ -10,3 +10,4 @@ src-tauri/target/
 
 README.md
 ROADMAP.md
+src-tauri/examples/bench_playback.rs

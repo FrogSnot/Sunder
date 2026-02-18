@@ -104,11 +104,6 @@ input {
   100% { background-position: 200% 0; }
 }
 
-@keyframes glowPulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(212, 160, 23, 0.15); }
-  50% { box-shadow: 0 0 20px rgba(212, 160, 23, 0.35); }
-}
-
 @keyframes dotPulse {
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.6); }
   40% { opacity: 1; transform: scale(1); }

@@ -186,7 +186,15 @@
   .card.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
-    animation: glowPulse 3s ease-in-out infinite;
+    position: relative;
+  }
+
+  .card.active::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    pointer-events: none;
   }
 
   .card-thumb {

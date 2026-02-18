@@ -1,4 +1,7 @@
 import type { Track, PlaybackProgress } from "../types";
+import { prefetchTrack } from "../ipc/bridge";
+
+const PREFETCH_AHEAD = 2;
 
 class PlayerState {
   currentTrack = $state<Track | null>(null);
@@ -35,6 +38,13 @@ class PlayerState {
     }
   }
 
+  prefetchAhead(fromIndex: number) {
+    for (let i = 1; i <= PREFETCH_AHEAD; i++) {
+      const track = this.queue[fromIndex + i];
+      if (track) prefetchTrack(track.id).catch(() => {});
+    }
+  }
+
   addToQueue(track: Track) {
     if (!this.queue.some((t) => t.id === track.id)) {
       this.queue = [...this.queue, track];
@@ -54,6 +64,7 @@ class PlayerState {
   playFromQueue(index: number) {
     if (index >= 0 && index < this.queue.length) {
       this.queueIndex = index;
+      this.prefetchAhead(index);
       return this.queue[index];
     }
     return null;
@@ -62,6 +73,7 @@ class PlayerState {
   nextTrack(): Track | null {
     if (this.queueIndex < this.queue.length - 1) {
       this.queueIndex++;
+      this.prefetchAhead(this.queueIndex);
       return this.queue[this.queueIndex];
     }
     return null;

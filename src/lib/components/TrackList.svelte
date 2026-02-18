@@ -114,7 +114,15 @@
   .track-row.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
-    animation: glowPulse 3s ease-in-out infinite;
+    position: relative;
+  }
+
+  .track-row.active::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    pointer-events: none;
   }
 
   .thumb {

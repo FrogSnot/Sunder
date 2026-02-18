@@ -24,8 +24,10 @@
   <div class="main-area">
     <section class="content">
       {#if nav.activeTab === "search"}
-        <SearchBar />
-        <TrackList />
+        <div class="search-section">
+          <SearchBar />
+          <TrackList />
+        </div>
       {:else if nav.activeTab === "explore"}
         <Explore />
       {:else if nav.activeTab === "queue"}
@@ -62,5 +64,11 @@
     flex: 1;
     overflow-y: auto;
     padding: 24px;
+  }
+
+  .search-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 </style>

@@ -7,6 +7,7 @@
     getPlaylistTracks,
     removeFromPlaylist,
     reorderPlaylistTracks,
+    renamePlaylist,
     playTrack,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
@@ -126,6 +127,33 @@
     } catch (e) {
       console.error("quick play:", e);
     }
+  }
+
+  let renamingId = $state<number | null>(null);
+  let renameValue = $state("");
+
+  function startRename(p: Playlist) {
+    renamingId = p.id;
+    renameValue = p.name;
+  }
+
+  async function commitRename(id: number) {
+    const name = renameValue.trim();
+    if (name) {
+      try {
+        await renamePlaylist(id, name);
+        await refreshPlaylists();
+        if (nav.activePlaylistId === id) nav.activePlaylistName = name;
+      } catch (e) {
+        console.error("rename:", e);
+      }
+    }
+    renamingId = null;
+  }
+
+  function handleRenameKeydown(e: KeyboardEvent, id: number) {
+    if (e.key === "Enter") commitRename(id);
+    if (e.key === "Escape") renamingId = null;
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -269,12 +297,31 @@
                 </svg>
               </div>
               <div class="playlist-info">
-                <span class="playlist-name">{p.name}</span>
+                {#if renamingId === p.id}
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    class="rename-input"
+                    type="text"
+                    bind:value={renameValue}
+                    autofocus
+                    onkeydown={(e) => handleRenameKeydown(e, p.id)}
+                    onblur={() => commitRename(p.id)}
+                    onclick={(e) => e.stopPropagation()}
+                  />
+                {:else}
+                  <span class="playlist-name">{p.name}</span>
+                {/if}
                 <span class="playlist-count">{p.track_count} track{p.track_count === 1 ? "" : "s"}</span>
               </div>
             </button>
             <button class="row-action-btn play" onclick={() => handleQuickPlay(p)} aria-label="Play all tracks">
               <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <button class="row-action-btn rename" onclick={() => startRename(p)} aria-label="Rename playlist">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
             </button>
             <button class="row-action-btn delete" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -434,8 +481,21 @@
 
   .row-action-btn:hover { background: var(--bg-elevated); transform: scale(1.1); }
   .row-action-btn.play:hover { color: var(--accent); }
+  .row-action-btn.rename:hover { color: var(--accent); }
   .row-action-btn.delete:hover { color: var(--error); }
   .row-action-btn svg { width: 16px; height: 16px; }
+
+  .rename-input {
+    background: var(--bg-overlay);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius-sm);
+    padding: 2px 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    outline: none;
+    width: 100%;
+  }
 
   .detail-header {
     display: flex;
@@ -508,11 +568,7 @@
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
-    transition: background 200ms ease, opacity 150ms ease, transform 200ms ease;
-  }
-
-  .track-row:hover {
-    transform: translateY(-1px);
+    transition: background 200ms ease, opacity 150ms ease;
   }
 
   .track-row.dragging { opacity: 0.3; }
@@ -539,7 +595,15 @@
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    animation: glowPulse 3s ease-in-out infinite;
+    position: relative;
+  }
+
+  .track-row.active::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    pointer-events: none;
   }
 
   .track-num {

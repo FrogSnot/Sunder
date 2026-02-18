@@ -93,6 +93,26 @@ impl SearchCache {
         Ok(())
     }
 
+    pub fn get_track_by_id(&self, id: &str) -> Result<Option<Track>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, title, artist, thumbnail, duration FROM tracks WHERE id = ?1",
+        )?;
+        let track = stmt
+            .query_row(params![id], |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    stream_url: None,
+                })
+            })
+            .ok();
+        Ok(track)
+    }
+
     pub fn search_local(&self, query: &str) -> Result<Vec<Track>, AppError> {
         if query.trim().is_empty() {
             return Ok(vec![]);
@@ -341,5 +361,127 @@ impl SearchCache {
             "SELECT COUNT(*) FROM listen_history", [], |r| r.get(0),
         )?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn temp_cache() -> SearchCache {
+        let dir = std::env::temp_dir().join(format!("sunder_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        SearchCache::new(&dir).unwrap()
+    }
+
+    fn sample_track(id: &str) -> Track {
+        Track {
+            id: id.to_string(),
+            title: format!("Track {id}"),
+            artist: "Test Artist".into(),
+            thumbnail: String::new(),
+            duration_secs: 210.0,
+            stream_url: None,
+        }
+    }
+
+    #[test]
+    fn get_track_by_id_returns_none_for_missing() {
+        let db = temp_cache();
+        assert!(db.get_track_by_id("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn get_track_by_id_finds_inserted_track() {
+        let db = temp_cache();
+        let track = sample_track("abc123");
+        db.upsert_tracks(&[track.clone()]).unwrap();
+
+        let found = db.get_track_by_id("abc123").unwrap().unwrap();
+        assert_eq!(found.id, "abc123");
+        assert_eq!(found.title, "Track abc123");
+        assert!((found.duration_secs - 210.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn search_local_does_not_find_by_video_id() {
+        let db = temp_cache();
+        db.upsert_tracks(&[sample_track("dQw4w9WgXcQ")]).unwrap();
+
+        let _results = db.search_local("dQw4w9WgXcQ").unwrap();
+        let by_id = db.get_track_by_id("dQw4w9WgXcQ").unwrap();
+        assert!(by_id.is_some());
+    }
+
+    #[test]
+    fn get_track_by_id_latency() {
+        let db = temp_cache();
+        let tracks: Vec<Track> = (0..1000).map(|i| sample_track(&format!("vid_{i}"))).collect();
+        db.upsert_tracks(&tracks).unwrap();
+
+        let t0 = Instant::now();
+        let iterations = 10_000;
+        for i in 0..iterations {
+            let id = format!("vid_{}", i % 1000);
+            let _ = db.get_track_by_id(&id);
+        }
+        let elapsed = t0.elapsed();
+        let avg_us = elapsed.as_micros() as f64 / iterations as f64;
+        eprintln!("[bench] get_track_by_id: {avg_us:.1} us/call ({iterations} iterations)");
+        assert!(avg_us < 500.0, "get_track_by_id too slow: {avg_us} us");
+    }
+
+    #[test]
+    fn record_listen_latency() {
+        let db = temp_cache();
+        db.upsert_tracks(&[sample_track("bench_track")]).unwrap();
+
+        let t0 = Instant::now();
+        let iterations = 1000;
+        for _ in 0..iterations {
+            db.record_listen("bench_track").unwrap();
+        }
+        let elapsed = t0.elapsed();
+        let avg_us = elapsed.as_micros() as f64 / iterations as f64;
+        eprintln!("[bench] record_listen: {avg_us:.1} us/call ({iterations} iterations)");
+        assert!(avg_us < 2000.0, "record_listen too slow: {avg_us} us");
+    }
+
+    #[test]
+    fn upsert_idempotent() {
+        let db = temp_cache();
+        let t = sample_track("repeat");
+        db.upsert_tracks(&[t.clone()]).unwrap();
+        db.upsert_tracks(&[t]).unwrap();
+
+        let found = db.get_track_by_id("repeat").unwrap();
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn playlist_crud() {
+        let db = temp_cache();
+        db.upsert_tracks(&[sample_track("t1"), sample_track("t2")]).unwrap();
+
+        let pl = db.create_playlist("My List").unwrap();
+        assert_eq!(pl.name, "My List");
+
+        db.add_to_playlist(pl.id, "t1").unwrap();
+        db.add_to_playlist(pl.id, "t2").unwrap();
+
+        let tracks = db.get_playlist_tracks(pl.id).unwrap();
+        assert_eq!(tracks.len(), 2);
+
+        db.remove_from_playlist(pl.id, "t1").unwrap();
+        let tracks = db.get_playlist_tracks(pl.id).unwrap();
+        assert_eq!(tracks.len(), 1);
+
+        db.rename_playlist(pl.id, "Renamed").unwrap();
+        let lists = db.list_playlists().unwrap();
+        assert_eq!(lists[0].name, "Renamed");
+
+        db.delete_playlist(pl.id).unwrap();
+        assert!(db.list_playlists().unwrap().is_empty());
     }
 }

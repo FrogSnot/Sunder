@@ -52,6 +52,10 @@ export async function seek(positionSecs: number): Promise<void> {
   await invoke("seek", { positionSecs });
 }
 
+export async function prefetchTrack(trackId: string): Promise<void> {
+  await invoke("prefetch_track", { trackId });
+}
+
 export async function createPlaylist(name: string): Promise<Playlist> {
   return invoke<Playlist>("create_playlist", { name });
 }

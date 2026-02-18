@@ -81,69 +81,84 @@ fn audio_thread(
     let mut sink: Option<Sink> = None;
 
     loop {
-        match rx.try_recv() {
-            Ok(AudioCommand::Play { video_id, duration_ms: dur }) => {
-                if let Some(s) = sink.take() {
-                    s.stop();
+        let first = rx.recv_timeout(Duration::from_millis(50));
+
+        let mut cmds: Vec<AudioCommand> = Vec::new();
+        match first {
+            Ok(cmd) => {
+                cmds.push(cmd);
+                while let Ok(more) = rx.try_recv() {
+                    cmds.push(more);
                 }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
 
-                *state.write().unwrap() = PlaybackState::Loading;
-                duration_ms.store(dur, Ordering::Release);
-                position_ms.store(0, Ordering::Release);
-                emit_state(&app, &state, &position_ms, &duration_ms);
+        for cmd in cmds {
+            match cmd {
+                AudioCommand::Play { video_id, duration_ms: dur } => {
+                    if let Some(s) = sink.take() {
+                        s.stop();
+                    }
 
-                eprintln!("[sunder] starting playback for: {video_id}");
-                let vol = *volume.read().unwrap();
+                    *state.write().unwrap() = PlaybackState::Loading;
+                    duration_ms.store(dur, Ordering::Release);
+                    position_ms.store(0, Ordering::Release);
+                    emit_state(&app, &state, &position_ms, &duration_ms);
 
-                match start_streaming(&video_id, &state, &stream_handle, vol, &app) {
-                    Ok(new_sink) => {
-                        eprintln!("[sunder] playback started");
-                        sink = Some(new_sink);
+                    eprintln!("[sunder] starting playback for: {video_id}");
+                    let vol = *volume.read().unwrap();
+
+                    let t0 = std::time::Instant::now();
+                    match start_streaming(&video_id, &state, &stream_handle, vol, &app) {
+                        Ok(new_sink) => {
+                            eprintln!("[sunder] playback started ({:.1?})", t0.elapsed());
+                            sink = Some(new_sink);
+                            *state.write().unwrap() = PlaybackState::Playing;
+                        }
+                        Err(e) => {
+                            eprintln!("[sunder] playback error: {e}");
+                            *state.write().unwrap() = PlaybackState::Error(e.to_string());
+                        }
+                    }
+                }
+                AudioCommand::Pause => {
+                    if let Some(ref s) = sink {
+                        s.pause();
+                        *state.write().unwrap() = PlaybackState::Paused;
+                    }
+                }
+                AudioCommand::Resume => {
+                    if let Some(ref s) = sink {
+                        s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
                     }
-                    Err(e) => {
-                        eprintln!("[sunder] playback error: {e}");
-                        *state.write().unwrap() = PlaybackState::Error(e.to_string());
+                }
+                AudioCommand::Stop => {
+                    if let Some(s) = sink.take() {
+                        s.stop();
+                    }
+                    *state.write().unwrap() = PlaybackState::Stopped;
+                    position_ms.store(0, Ordering::Release);
+                }
+                AudioCommand::SetVolume(v) => {
+                    *volume.write().unwrap() = v;
+                    if let Some(ref s) = sink {
+                        s.set_volume(v);
+                    }
+                }
+                AudioCommand::Seek(secs) => {
+                    if let Some(ref s) = sink {
+                        let d = Duration::from_secs_f64(secs.max(0.0));
+                        if let Err(e) = s.try_seek(d) {
+                            eprintln!("[sunder] seek failed: {e}");
+                        } else {
+                            position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                        }
                     }
                 }
             }
-            Ok(AudioCommand::Pause) => {
-                if let Some(ref s) = sink {
-                    s.pause();
-                    *state.write().unwrap() = PlaybackState::Paused;
-                }
-            }
-            Ok(AudioCommand::Resume) => {
-                if let Some(ref s) = sink {
-                    s.play();
-                    *state.write().unwrap() = PlaybackState::Playing;
-                }
-            }
-            Ok(AudioCommand::Stop) => {
-                if let Some(s) = sink.take() {
-                    s.stop();
-                }
-                *state.write().unwrap() = PlaybackState::Stopped;
-                position_ms.store(0, Ordering::Release);
-            }
-            Ok(AudioCommand::SetVolume(v)) => {
-                *volume.write().unwrap() = v;
-                if let Some(ref s) = sink {
-                    s.set_volume(v);
-                }
-            }
-            Ok(AudioCommand::Seek(secs)) => {
-                if let Some(ref s) = sink {
-                    let dur = Duration::from_secs_f64(secs.max(0.0));
-                    if let Err(e) = s.try_seek(dur) {
-                        eprintln!("[sunder] seek failed: {e}");
-                    } else {
-                        position_ms.store((secs * 1000.0) as u64, Ordering::Release);
-                    }
-                }
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
         }
 
         if let Some(ref s) = sink {
@@ -159,7 +174,6 @@ fn audio_thread(
         }
 
         emit_state(&app, &state, &position_ms, &duration_ms);
-        std::thread::sleep(Duration::from_millis(16));
     }
 }
 
@@ -180,7 +194,6 @@ fn start_streaming(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| crate::error::AppError::Io(e))?;
 
-    // yt-dlp outputs to <video_id>.%(ext)s with --audio-format mp3 the final ext is mp3
     let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
 
@@ -249,7 +262,9 @@ fn start_streaming(
 
     let file = std::fs::File::open(&expected_path)
         .map_err(|e| crate::error::AppError::Io(e))?;
-    let decoder = Decoder::new(io::BufReader::new(file))
+    // Use a large read buffer (512 KB) so the decoder's header scan completes
+    // in a handful of syscalls rather than thousands of small reads.
+    let decoder = Decoder::new(io::BufReader::with_capacity(512 * 1024, file))
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
     let sink = Sink::try_new(stream_handle)

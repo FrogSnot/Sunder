@@ -284,7 +284,6 @@
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    animation: glowPulse 3s ease-in-out infinite;
   }
 
   .track-num {

@@ -33,14 +33,11 @@ pub async fn play_track(
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<(), String> {
-    // Stop old track instantly so there's zero overlap
-    audio.send(AudioCommand::Stop);
-
-    let duration_ms = {
-        let local = db.search_local(&track_id).unwrap_or_default();
-        if let Some(t) = local.first() {
-            (t.duration_secs * 1000.0) as u64
-        } else {
+    // Look up duration from DB by primary key (instant).
+    // Only fall back to yt-dlp metadata if the track was never seen before.
+    let duration_ms = match db.get_track_by_id(&track_id) {
+        Ok(Some(t)) => (t.duration_secs * 1000.0) as u64,
+        _ => {
             match extractor.metadata(&track_id).await {
                 Ok(t) => {
                     let _ = db.upsert_tracks(&[t.clone()]);
@@ -51,8 +48,8 @@ pub async fn play_track(
         }
     };
 
+    audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
     let _ = db.record_listen(&track_id);
-    audio.send(AudioCommand::Play { video_id: track_id, duration_ms });
     Ok(())
 }
 
@@ -144,6 +141,39 @@ pub async fn get_playlist_tracks(playlist_id: i64, db: State<'_, SearchCache>) -
 #[tauri::command]
 pub async fn reorder_playlist_tracks(playlist_id: i64, track_ids: Vec<String>, db: State<'_, SearchCache>) -> Result<(), String> {
     db.reorder_playlist_tracks(playlist_id, &track_ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn prefetch_track(
+    track_id: String,
+) -> Result<(), String> {
+    let cache_dir = std::env::temp_dir().join("sunder");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let expected_path = cache_dir.join(format!("{track_id}.mp3"));
+    if expected_path.exists() {
+        return Ok(());
+    }
+    let bin = std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into());
+    let url = format!("https://www.youtube.com/watch?v={track_id}");
+    let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
+    tokio::spawn(async move {
+        let _ = tokio::process::Command::new(&bin)
+            .args([
+                &url,
+                "--extract-audio",
+                "--audio-format", "mp3",
+                "--audio-quality", "2",
+                "-o", out_template.to_str().unwrap_or_default(),
+                "--no-playlist",
+                "-q",
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+        eprintln!("[sunder] prefetch done: {track_id}");
+    });
+    Ok(())
 }
 
 #[tauri::command]
