@@ -74,7 +74,6 @@
     font-size: 1.4rem;
     color: var(--accent);
     display: inline-block;
-    animation: float 3s ease-in-out infinite;
   }
 
   .brand-name {
@@ -110,7 +109,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 0 12px;
+    height: 40px;
     border-radius: var(--radius);
     font-size: 0.9rem;
     font-weight: 500;
