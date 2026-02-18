@@ -160,6 +160,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    animation: viewEnter 350ms var(--ease-out-expo);
   }
 
   .queue-header {
@@ -190,12 +191,17 @@
     color: var(--text-secondary);
     background: var(--bg-elevated);
     border-radius: var(--radius);
-    transition: background var(--transition), color var(--transition);
+    transition: background 200ms ease, color 200ms ease, transform 150ms var(--ease-spring);
   }
 
   .action-btn:hover {
     background: var(--bg-overlay);
     color: var(--text-primary);
+    transform: scale(1.03);
+  }
+
+  .action-btn:active {
+    transform: scale(0.97);
   }
 
   .action-btn svg { width: 14px; height: 14px; }
@@ -215,17 +221,24 @@
     justify-content: center;
     height: 40vh;
     color: var(--text-muted);
+    animation: viewEnter 500ms var(--ease-out-expo);
   }
 
   .empty-title {
     font-size: 1.1rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
+    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; }
 
-  .track-list { display: flex; flex-direction: column; gap: 2px; }
+  .track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: viewEnter 350ms var(--ease-out-expo);
+  }
 
   .track-row {
     display: flex;
@@ -234,7 +247,11 @@
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
-    transition: background var(--transition), opacity 150ms;
+    transition: background 200ms ease, opacity 150ms ease, transform 200ms ease;
+  }
+
+  .track-row:hover {
+    transform: translateY(-1px);
   }
 
   .track-row.dragging {
@@ -267,6 +284,7 @@
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
+    animation: glowPulse 3s ease-in-out infinite;
   }
 
   .track-num {
@@ -340,10 +358,13 @@
     justify-content: center;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    transition: color var(--transition);
+    transition: color 200ms ease, transform 150ms ease;
     flex-shrink: 0;
   }
 
-  .remove-btn:hover { color: var(--error); }
+  .remove-btn:hover {
+    color: var(--error);
+    transform: scale(1.15);
+  }
   .remove-btn svg { width: 14px; height: 14px; }
 </style>

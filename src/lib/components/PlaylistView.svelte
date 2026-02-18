@@ -132,7 +132,6 @@
     if (e.key === "Enter") handleCreate();
   }
 
-  /* ── pointer-based drag reorder (no HTML5 drag API — avoids WebKitGTK ghost artifacts) ── */
   let dragFrom = $state(-1);
   let dragOverIdx = $state(-1);
   let dragging = $state(false);
@@ -319,10 +318,18 @@
     border-radius: var(--radius);
     font-weight: 600;
     font-size: 0.85rem;
-    transition: background var(--transition);
+    transition: background 200ms ease, transform 150ms var(--ease-spring);
   }
 
-  .create-btn:hover:not(:disabled) { background: var(--accent-light); }
+  .create-btn:hover:not(:disabled) {
+    background: var(--accent-light);
+    transform: scale(1.03);
+  }
+
+  .create-btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
   .create-btn:disabled { opacity: 0.5; cursor: default; }
 
   .empty-state {
@@ -332,17 +339,24 @@
     justify-content: center;
     height: 40vh;
     color: var(--text-muted);
+    animation: viewEnter 500ms var(--ease-out-expo);
   }
 
   .empty-title {
     font-size: 1.1rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
+    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; color: var(--text-muted); }
 
-  .list { display: flex; flex-direction: column; gap: 2px; }
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: viewEnter 350ms var(--ease-out-expo);
+  }
 
   .playlist-row {
     display: flex;
@@ -356,11 +370,18 @@
     gap: 14px;
     padding: 12px 14px;
     border-radius: var(--radius);
-    transition: background var(--transition);
+    transition: background 200ms ease, transform 200ms ease;
     text-align: left;
   }
 
-  .playlist-btn:hover { background: var(--bg-elevated); }
+  .playlist-btn:hover {
+    background: var(--bg-elevated);
+    transform: translateX(4px);
+  }
+
+  .playlist-btn:active {
+    transform: scale(0.99);
+  }
 
   .playlist-icon {
     width: 40px;
@@ -372,6 +393,12 @@
     border-radius: var(--radius-sm);
     color: var(--accent);
     flex-shrink: 0;
+    transition: background 200ms ease, transform 200ms ease;
+  }
+
+  .playlist-btn:hover .playlist-icon {
+    background: var(--accent-dim);
+    transform: scale(1.05);
   }
 
   .playlist-icon svg { width: 20px; height: 20px; }
@@ -401,16 +428,15 @@
     justify-content: center;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    transition: color var(--transition), background var(--transition);
+    transition: color 200ms ease, background 200ms ease, transform 150ms ease;
     flex-shrink: 0;
   }
 
-  .row-action-btn:hover { background: var(--bg-elevated); }
+  .row-action-btn:hover { background: var(--bg-elevated); transform: scale(1.1); }
   .row-action-btn.play:hover { color: var(--accent); }
   .row-action-btn.delete:hover { color: var(--error); }
   .row-action-btn svg { width: 16px; height: 16px; }
 
-  /* Detail view */
   .detail-header {
     display: flex;
     align-items: center;
@@ -434,12 +460,16 @@
     border-radius: var(--radius);
     font-weight: 600;
     font-size: 0.85rem;
-    transition: background var(--transition), transform var(--transition);
+    transition: background 200ms ease, transform 150ms var(--ease-spring);
   }
 
   .play-all-btn:hover {
     background: var(--accent-light);
-    transform: scale(1.02);
+    transform: scale(1.05);
+  }
+
+  .play-all-btn:active {
+    transform: scale(0.95);
   }
 
   .play-all-btn svg {
@@ -455,13 +485,21 @@
     color: var(--text-secondary);
     margin-bottom: 12px;
     padding: 4px 0;
-    transition: color var(--transition);
+    transition: color 200ms ease, transform 200ms ease;
   }
 
-  .back-btn:hover { color: var(--text-primary); }
+  .back-btn:hover {
+    color: var(--text-primary);
+    transform: translateX(-4px);
+  }
   .back-btn svg { width: 16px; height: 16px; }
 
-  .track-list { display: flex; flex-direction: column; gap: 2px; }
+  .track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: viewEnter 350ms var(--ease-out-expo);
+  }
 
   .track-row {
     display: flex;
@@ -470,7 +508,11 @@
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
-    transition: background var(--transition), opacity 150ms;
+    transition: background 200ms ease, opacity 150ms ease, transform 200ms ease;
+  }
+
+  .track-row:hover {
+    transform: translateY(-1px);
   }
 
   .track-row.dragging { opacity: 0.3; }
@@ -497,6 +539,7 @@
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
+    animation: glowPulse 3s ease-in-out infinite;
   }
 
   .track-num {
@@ -570,10 +613,13 @@
     justify-content: center;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    transition: color var(--transition);
+    transition: color 200ms ease, transform 150ms ease;
     flex-shrink: 0;
   }
 
-  .remove-btn:hover { color: var(--error); }
+  .remove-btn:hover {
+    color: var(--error);
+    transform: scale(1.15);
+  }
   .remove-btn svg { width: 14px; height: 14px; }
 </style>

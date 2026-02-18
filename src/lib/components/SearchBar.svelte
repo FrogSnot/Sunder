@@ -54,7 +54,9 @@
     onkeydown={handleKeydown}
   />
   {#if searchState.searching}
-    <div class="spinner"></div>
+    <div class="dot-loader">
+      <span></span><span></span><span></span>
+    </div>
   {/if}
 </div>
 
@@ -68,12 +70,13 @@
     background: var(--bg-elevated);
     border-radius: var(--radius);
     padding: 6px 14px;
-    transition: outline var(--transition);
+    transition: outline 200ms ease, box-shadow 300ms ease;
     outline: 2px solid transparent;
   }
 
   .search-bar:focus-within {
     outline-color: var(--accent-dim);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.12);
   }
 
   .search-icon {
@@ -81,6 +84,12 @@
     height: 18px;
     color: var(--text-muted);
     flex-shrink: 0;
+    transition: color 200ms ease, transform 300ms var(--ease-spring);
+  }
+
+  .search-bar:focus-within .search-icon {
+    color: var(--accent);
+    transform: scale(1.1);
   }
 
   input {
@@ -96,16 +105,20 @@
     color: var(--text-muted);
   }
 
-  .spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--text-muted);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
+  .dot-loader {
+    display: flex;
+    gap: 4px;
+    align-items: center;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+  .dot-loader span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: dotPulse 1.2s ease-in-out infinite;
   }
+
+  .dot-loader span:nth-child(2) { animation-delay: 0.15s; }
+  .dot-loader span:nth-child(3) { animation-delay: 0.3s; }
 </style>

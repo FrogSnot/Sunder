@@ -80,7 +80,7 @@
 
   .fill {
     height: 100%;
-    background: var(--accent);
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
     border-radius: 2px;
     transition: width 16ms linear;
   }

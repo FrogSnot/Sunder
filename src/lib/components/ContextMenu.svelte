@@ -119,6 +119,8 @@
     border-radius: var(--radius);
     padding: 4px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    animation: scaleIn 180ms var(--ease-out-expo);
+    transform-origin: top left;
   }
 
   .ctx-item {
@@ -131,10 +133,17 @@
     color: var(--text-primary);
     border-radius: var(--radius-sm);
     text-align: left;
-    transition: background var(--transition);
+    transition: background 150ms ease, transform 150ms ease;
   }
 
-  .ctx-item:hover { background: var(--bg-overlay); }
+  .ctx-item:hover {
+    background: var(--bg-overlay);
+    transform: translateX(2px);
+  }
+
+  .ctx-item:active {
+    transform: scale(0.98);
+  }
   .ctx-item svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
 
   .ctx-divider {
@@ -187,11 +196,6 @@
     font-size: 0.85rem;
     z-index: 250;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    animation: toast-in 200ms ease;
-  }
-
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    animation: toastSlide 300ms var(--ease-spring);
   }
 </style>

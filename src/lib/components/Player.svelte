@@ -113,7 +113,7 @@
     background: var(--bg-surface);
     border-top: 1px solid var(--bg-overlay);
     transform: translateY(100%);
-    transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 450ms var(--ease-out-expo);
     z-index: 100;
   }
 
@@ -143,6 +143,8 @@
     object-fit: cover;
     background: var(--bg-overlay);
     flex-shrink: 0;
+    box-shadow: 0 0 12px rgba(212, 160, 23, 0.2);
+    transition: box-shadow 300ms ease;
   }
 
   .np-info {
@@ -185,12 +187,16 @@
     border-radius: 50%;
     background: var(--accent);
     color: #121212;
-    transition: background var(--transition), transform var(--transition);
+    transition: background 150ms ease, transform 150ms var(--ease-spring);
   }
 
   .ctrl-btn:hover {
     background: var(--accent-light);
-    transform: scale(1.05);
+    transform: scale(1.08);
+  }
+
+  .ctrl-btn:active {
+    transform: scale(0.92);
   }
 
   .ctrl-btn svg {
@@ -208,6 +214,11 @@
   .ctrl-btn.ctrl-sm:hover {
     background: var(--bg-elevated);
     color: var(--text-primary);
+    transform: scale(1.08);
+  }
+
+  .ctrl-btn.ctrl-sm:active {
+    transform: scale(0.9);
   }
 
   .ctrl-btn.ctrl-sm:disabled {
@@ -270,9 +281,11 @@
 
   .dl-fill {
     height: 100%;
-    background: var(--accent);
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 50%, var(--accent) 100%);
+    background-size: 200% 100%;
     border-radius: 2px;
     transition: width 200ms ease;
+    animation: shimmer 2s ease-in-out infinite;
   }
 
   .dl-spinner {

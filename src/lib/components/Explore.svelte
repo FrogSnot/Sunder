@@ -53,7 +53,12 @@
 
 {#if loading}
   <div class="loading">
-    <div class="spinner-lg"></div>
+    <div class="eq-loader">
+      <div class="eq-bar"></div>
+      <div class="eq-bar"></div>
+      <div class="eq-bar"></div>
+      <div class="eq-bar"></div>
+    </div>
     <p>Discovering music...</p>
   </div>
 {:else if sections.length === 0}
@@ -67,12 +72,13 @@
       <section class="section">
         <h2 class="section-title">{section.title}</h2>
         <div class="card-grid">
-          {#each section.tracks as track (track.id)}
+          {#each section.tracks as track, i (track.id)}
             <button
               class="card"
               class:active={isActive(track)}
               onclick={() => handlePlay(track)}
               oncontextmenu={(e) => handleContext(e, track)}
+              style="--i: {i}"
             >
               <img class="card-thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
               <div class="card-info">
@@ -97,20 +103,29 @@
     height: 60vh;
     gap: 16px;
     color: var(--text-muted);
+    animation: viewEnter 500ms var(--ease-out-expo);
   }
 
-  .spinner-lg {
-    width: 32px;
+  .eq-loader {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
     height: 32px;
-    border: 3px solid var(--bg-overlay);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
   }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
+  .eq-bar {
+    width: 4px;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transform-origin: bottom;
+    animation: eqBounce 1s ease-in-out infinite;
   }
+
+  .eq-bar:nth-child(1) { animation-delay: 0ms; }
+  .eq-bar:nth-child(2) { animation-delay: 200ms; }
+  .eq-bar:nth-child(3) { animation-delay: 400ms; }
+  .eq-bar:nth-child(4) { animation-delay: 150ms; }
 
   .empty-state {
     display: flex;
@@ -119,12 +134,14 @@
     justify-content: center;
     height: 60vh;
     color: var(--text-muted);
+    animation: viewEnter 500ms var(--ease-out-expo);
   }
 
   .empty-title {
     font-size: 1.2rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
+    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; }
@@ -133,6 +150,7 @@
     display: flex;
     flex-direction: column;
     gap: 32px;
+    animation: viewEnter 400ms var(--ease-out-expo);
   }
 
   .section-title {
@@ -154,16 +172,27 @@
     gap: 14px;
     padding: 10px 14px;
     border-radius: var(--radius);
-    transition: background var(--transition);
+    transition: background 200ms ease, transform 200ms ease, box-shadow 200ms ease;
     text-align: left;
     width: 100%;
+    animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
+    animation-delay: calc(min(var(--i, 0), 12) * 35ms);
   }
 
-  .card:hover { background: var(--bg-elevated); }
+  .card:hover {
+    background: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  .card:active {
+    transform: scale(0.99);
+  }
 
   .card.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
+    animation: glowPulse 3s ease-in-out infinite;
   }
 
   .card-thumb {

@@ -19,6 +19,8 @@
     if (tab === "playlists") return nav.activeTab === "playlists" || nav.activeTab === "playlist-detail";
     return nav.activeTab === tab;
   }
+
+  let activeIndex = $derived(tabs.findIndex(t => isActive(t.id)));
 </script>
 
 <nav class="sidebar">
@@ -28,6 +30,9 @@
   </div>
 
   <div class="nav-items">
+    {#if activeIndex >= 0}
+      <div class="nav-pill" style="transform: translateY({activeIndex * 42}px)"></div>
+    {/if}
     {#each tabs as tab (tab.id)}
       <button
         class="nav-btn"
@@ -68,6 +73,8 @@
   .brand-icon {
     font-size: 1.4rem;
     color: var(--accent);
+    display: inline-block;
+    animation: float 3s ease-in-out infinite;
   }
 
   .brand-name {
@@ -83,6 +90,20 @@
     flex-direction: column;
     gap: 2px;
     padding: 0 8px;
+    position: relative;
+  }
+
+  .nav-pill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--accent);
+    transition: transform 400ms var(--ease-out-expo);
+    pointer-events: none;
   }
 
   .nav-btn {
@@ -94,16 +115,20 @@
     font-size: 0.9rem;
     font-weight: 500;
     color: var(--text-secondary);
-    transition: background var(--transition), color var(--transition);
+    transition: color 200ms ease, transform 150ms ease;
+    position: relative;
+    z-index: 1;
   }
 
   .nav-btn:hover {
-    background: var(--bg-elevated);
     color: var(--text-primary);
   }
 
+  .nav-btn:active {
+    transform: scale(0.97);
+  }
+
   .nav-btn.active {
-    background: var(--bg-elevated);
     color: var(--accent);
   }
 

@@ -41,12 +41,13 @@
   </div>
 {:else}
   <div class="track-list">
-    {#each tracks as track (track.id)}
+    {#each tracks as track, i (track.id)}
       <button
         class="track-row"
         class:active={isActive(track)}
         onclick={() => handlePlay(track)}
         oncontextmenu={(e) => handleContext(e, track)}
+        style="--i: {i}"
       >
         <img
           class="thumb"
@@ -72,12 +73,14 @@
     justify-content: center;
     height: 60vh;
     color: var(--text-muted);
+    animation: viewEnter 500ms var(--ease-out-expo);
   }
 
   .empty-title {
     font-size: 1.2rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
+    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub {
@@ -88,6 +91,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    animation: viewEnter 350ms var(--ease-out-expo);
   }
 
   .track-row {
@@ -96,18 +100,27 @@
     gap: 14px;
     padding: 10px 14px;
     border-radius: var(--radius);
-    transition: background var(--transition);
+    transition: background 200ms ease, transform 200ms ease, box-shadow 200ms ease;
     text-align: left;
     width: 100%;
+    animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
+    animation-delay: calc(min(var(--i, 0), 15) * 30ms);
   }
 
   .track-row:hover {
     background: var(--bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  .track-row:active {
+    transform: scale(0.99);
   }
 
   .track-row.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
+    animation: glowPulse 3s ease-in-out infinite;
   }
 
   .thumb {
