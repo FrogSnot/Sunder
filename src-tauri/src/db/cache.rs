@@ -370,7 +370,10 @@ mod tests {
     use std::time::Instant;
 
     fn temp_cache() -> SearchCache {
-        let dir = std::env::temp_dir().join(format!("sunder_test_{}", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("sunder_test_{}_{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         SearchCache::new(&dir).unwrap()
     }
