@@ -1,5 +1,6 @@
 <script lang="ts">
   import { listPlaylists, addToPlaylist } from "../ipc/bridge";
+  import { player } from "../state/player.svelte";
   import type { Playlist, Track } from "../types";
 
   let visible = $state(false);
@@ -26,6 +27,20 @@
   function close() {
     visible = false;
     showPlaylists = false;
+  }
+
+  function handlePlayNext() {
+    if (!track) return;
+    player.playNext(track);
+    showToast("Playing next");
+    close();
+  }
+
+  function handleAddToQueue() {
+    if (!track) return;
+    player.addToQueue(track);
+    showToast("Added to queue");
+    close();
   }
 
   async function expandPlaylists() {
@@ -56,6 +71,15 @@
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="ctx-menu" style="left: {x}px; top: {y}px" onclick={(e) => e.stopPropagation()}>
     {#if !showPlaylists}
+      <button class="ctx-item" onclick={handlePlayNext}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/><line x1="22" y1="3" x2="22" y2="21"/></svg>
+        Play next
+      </button>
+      <button class="ctx-item" onclick={handleAddToQueue}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Add to queue
+      </button>
+      <div class="ctx-divider"></div>
       <button class="ctx-item" onclick={expandPlaylists}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add to playlist
@@ -112,6 +136,12 @@
 
   .ctx-item:hover { background: var(--bg-overlay); }
   .ctx-item svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
+
+  .ctx-divider {
+    height: 1px;
+    background: var(--bg-overlay);
+    margin: 4px 8px;
+  }
 
   .ctx-header {
     display: flex;

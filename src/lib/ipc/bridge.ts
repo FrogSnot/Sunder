@@ -16,7 +16,18 @@ export async function playTrack(track: Track): Promise<void> {
   player.isBuffering = true;
   player.downloadPercent = 0;
   player.downloadStage = "preparing";
+  const idx = player.queue.findIndex((t) => t.id === track.id);
+  if (idx !== -1) {
+    player.queueIndex = idx;
+  }
   await invoke("play_track", { trackId: track.id });
+}
+
+async function playNextInQueue(): Promise<void> {
+  const next = player.nextTrack();
+  if (next) {
+    await playTrack(next);
+  }
 }
 
 export async function pause(): Promise<void> {
@@ -69,6 +80,10 @@ export async function getPlaylistTracks(playlistId: number): Promise<Track[]> {
   return invoke<Track[]>("get_playlist_tracks", { playlistId });
 }
 
+export async function reorderPlaylistTracks(playlistId: number, trackIds: string[]): Promise<void> {
+  await invoke("reorder_playlist_tracks", { playlistId, trackIds });
+}
+
 export async function getRecentlyPlayed(): Promise<Track[]> {
   return invoke<Track[]>("get_recently_played");
 }
@@ -80,6 +95,7 @@ export async function getExplore(): Promise<ExploreData> {
 export function initProgressListener(): () => void {
   let unlistenProgress: (() => void) | undefined;
   let unlistenDownload: (() => void) | undefined;
+  let unlistenFinished: (() => void) | undefined;
 
   listen<PlaybackProgress>("playback-progress", (event) => {
     player.updateFromProgress(event.payload);
@@ -90,8 +106,13 @@ export function initProgressListener(): () => void {
     player.downloadStage = event.payload.stage;
   }).then((fn) => { unlistenDownload = fn; });
 
+  listen("track-finished", () => {
+    playNextInQueue();
+  }).then((fn) => { unlistenFinished = fn; });
+
   return () => {
     unlistenProgress?.();
     unlistenDownload?.();
+    unlistenFinished?.();
   };
 }

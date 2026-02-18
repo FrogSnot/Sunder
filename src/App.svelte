@@ -5,6 +5,7 @@
   import TrackList from "./lib/components/TrackList.svelte";
   import Explore from "./lib/components/Explore.svelte";
   import PlaylistView from "./lib/components/PlaylistView.svelte";
+  import QueueView from "./lib/components/QueueView.svelte";
   import Player from "./lib/components/Player.svelte";
   import { initProgressListener } from "./lib/ipc/bridge";
   import { nav } from "./lib/state/nav.svelte";
@@ -27,6 +28,8 @@
         <TrackList />
       {:else if nav.activeTab === "explore"}
         <Explore />
+      {:else if nav.activeTab === "queue"}
+        <QueueView />
       {:else}
         <PlaylistView />
       {/if}

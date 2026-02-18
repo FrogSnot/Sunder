@@ -6,6 +6,7 @@
     deletePlaylist,
     getPlaylistTracks,
     removeFromPlaylist,
+    reorderPlaylistTracks,
     playTrack,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
@@ -106,8 +107,74 @@
     return player.currentTrack?.id === track.id;
   }
 
+  async function handlePlayAll() {
+    if (detailTracks.length === 0) return;
+    player.clearQueue();
+    for (const t of detailTracks) player.addToQueue(t);
+    const first = player.playFromQueue(0);
+    if (first) await playTrack(first);
+  }
+
+  async function handleQuickPlay(p: Playlist) {
+    try {
+      const tracks = await getPlaylistTracks(p.id);
+      if (tracks.length === 0) return;
+      player.clearQueue();
+      for (const t of tracks) player.addToQueue(t);
+      const first = player.playFromQueue(0);
+      if (first) await playTrack(first);
+    } catch (e) {
+      console.error("quick play:", e);
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") handleCreate();
+  }
+
+  /* ── pointer-based drag reorder (no HTML5 drag API — avoids WebKitGTK ghost artifacts) ── */
+  let dragFrom = $state(-1);
+  let dragOverIdx = $state(-1);
+  let dragging = $state(false);
+
+  function onPointerDown(e: PointerEvent, i: number) {
+    e.preventDefault();
+    dragFrom = i;
+    dragOverIdx = i;
+    dragging = true;
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!dragging) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const row = el.closest('.track-row') as HTMLElement | null;
+    if (!row || !row.dataset.idx) return;
+    const idx = parseInt(row.dataset.idx, 10);
+    if (!isNaN(idx)) dragOverIdx = idx;
+  }
+
+  async function onPointerUp() {
+    if (!dragging) return;
+    const from = dragFrom;
+    const to = dragOverIdx;
+    dragFrom = -1;
+    dragOverIdx = -1;
+    dragging = false;
+    if (from >= 0 && to >= 0 && from !== to) {
+      const moved = detailTracks.splice(from, 1)[0];
+      detailTracks.splice(to, 0, moved);
+      detailTracks = detailTracks;
+      if (nav.activePlaylistId !== null) {
+        try {
+          await reorderPlaylistTracks(nav.activePlaylistId, detailTracks.map(t => t.id));
+        } catch (err) {
+          console.error("reorder:", err);
+        }
+      }
+    }
   }
 </script>
 
@@ -119,14 +186,38 @@
       </svg>
       Back
     </button>
-    <h2 class="detail-title">{nav.activePlaylistName}</h2>
+    <div class="detail-header">
+      <h2 class="detail-title">{nav.activePlaylistName}</h2>
+      {#if detailTracks.length > 0}
+        <button class="play-all-btn" onclick={handlePlayAll} aria-label="Play all">
+          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Play All
+        </button>
+      {/if}
+    </div>
 
     {#if detailTracks.length === 0}
       <p class="empty-sub">No tracks yet. Add tracks from search results.</p>
     {:else}
       <div class="track-list">
         {#each detailTracks as track, i (track.id)}
-          <div class="track-row" class:active={isActive(track)}>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="track-row"
+            class:active={isActive(track)}
+            class:dragging={dragging && dragFrom === i}
+            class:drag-over={dragging && dragOverIdx === i && dragFrom !== i}
+            data-idx={i}
+          >
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span
+              class="drag-handle"
+              onpointerdown={(e) => onPointerDown(e, i)}
+              onpointermove={onPointerMove}
+              onpointerup={onPointerUp}
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>
+            </span>
             <span class="track-num">{i + 1}</span>
             <button class="track-play" onclick={() => handlePlay(track)}>
               <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
@@ -183,7 +274,10 @@
                 <span class="playlist-count">{p.track_count} track{p.track_count === 1 ? "" : "s"}</span>
               </div>
             </button>
-            <button class="delete-btn" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
+            <button class="row-action-btn play" onclick={() => handleQuickPlay(p)} aria-label="Play all tracks">
+              <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+            <button class="row-action-btn delete" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -299,7 +393,7 @@
     color: var(--text-secondary);
   }
 
-  .delete-btn {
+  .row-action-btn {
     width: 32px;
     height: 32px;
     display: flex;
@@ -311,19 +405,46 @@
     flex-shrink: 0;
   }
 
-  .delete-btn:hover {
-    color: var(--error);
-    background: var(--bg-elevated);
-  }
-
-  .delete-btn svg { width: 16px; height: 16px; }
+  .row-action-btn:hover { background: var(--bg-elevated); }
+  .row-action-btn.play:hover { color: var(--accent); }
+  .row-action-btn.delete:hover { color: var(--error); }
+  .row-action-btn svg { width: 16px; height: 16px; }
 
   /* Detail view */
+  .detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
   .detail-title {
     font-size: 1.3rem;
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 16px;
+  }
+
+  .play-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--accent);
+    color: #121212;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: background var(--transition), transform var(--transition);
+  }
+
+  .play-all-btn:hover {
+    background: var(--accent-light);
+    transform: scale(1.02);
+  }
+
+  .play-all-btn svg {
+    width: 14px;
+    height: 14px;
   }
 
   .back-btn {
@@ -346,7 +467,31 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    opacity: 1;
+    background: var(--bg-base);
+    border-radius: var(--radius);
+    transition: background var(--transition), opacity 150ms;
   }
+
+  .track-row.dragging { opacity: 0.3; }
+  .track-row.drag-over { border-top: 2px solid var(--accent); margin-top: -2px; }
+
+  .drag-handle {
+    width: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    cursor: grab;
+    flex-shrink: 0;
+    opacity: 0.4;
+    transition: opacity var(--transition), color var(--transition);
+    touch-action: none;
+  }
+
+  .drag-handle:active { cursor: grabbing; }
+  .track-row:hover .drag-handle { opacity: 1; }
+  .drag-handle svg { width: 12px; height: 12px; }
 
   .track-row.active {
     background: var(--bg-elevated);

@@ -193,6 +193,19 @@ impl SearchCache {
         Ok(())
     }
 
+    pub fn reorder_playlist_tracks(&self, playlist_id: i64, track_ids: &[String]) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        for (i, tid) in track_ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE playlist_tracks SET position = ?3 WHERE playlist_id = ?1 AND track_id = ?2",
+                params![playlist_id, tid, i as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_playlist_tracks(&self, playlist_id: i64) -> Result<Vec<Track>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -264,5 +277,69 @@ impl SearchCache {
             .filter_map(|r| r.ok())
             .collect();
         Ok(tracks)
+    }
+
+
+    pub fn recent_track_ids(&self, days: i64) -> Result<std::collections::HashSet<String>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT track_id FROM listen_history
+             WHERE played >= datetime('now', ?1)",
+        )?;
+        let offset = format!("-{days} days");
+        let ids = stmt
+            .query_map(params![offset], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+    
+    pub fn title_keywords(&self, limit: usize) -> Result<Vec<(String, i64)>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT t.title FROM listen_history h
+             JOIN tracks t ON t.id = h.track_id
+             ORDER BY h.played DESC LIMIT 200",
+        )?;
+        let titles: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut freq: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        let stopwords: std::collections::HashSet<&str> = [
+            "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
+            "is", "it", "my", "me", "i", "you", "we", "he", "she", "this", "that",
+            "with", "from", "by", "not", "no", "but", "so", "if", "up", "out",
+            "all", "just", "like", "one", "do", "don", "be", "am", "are", "was",
+            "has", "had", "have", "will", "can", "would", "could", "should",
+            "ft", "feat", "vs", "official", "video", "audio", "music",
+            "lyric", "lyrics", "visualizer", "visualiser", "hd", "hq",
+            "full", "new", "version", "album", "single", "ep",
+        ].into_iter().collect();
+
+        for title in &titles {
+            let cleaned = title.to_lowercase()
+                .replace(|c: char| !c.is_alphanumeric() && c != ' ', " ");
+            for word in cleaned.split_whitespace() {
+                if word.len() < 3 || stopwords.contains(word) {
+                    continue;
+                }
+                *freq.entry(word.to_string()).or_default() += 1;
+            }
+        }
+
+        let mut pairs: Vec<_> = freq.into_iter().collect();
+        pairs.sort_by(|a, b| b.1.cmp(&a.1));
+        pairs.truncate(limit);
+        Ok(pairs)
+    }
+
+    pub fn listen_count(&self) -> Result<i64, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM listen_history", [], |r| r.get(0),
+        )?;
+        Ok(count)
     }
 }
