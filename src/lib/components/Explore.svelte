@@ -4,6 +4,7 @@
   import { player } from "../state/player.svelte";
   import { exploreCache } from "../state/explore.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import WormText from "./WormText.svelte";
   import type { Track } from "../types";
 
   let sections = $derived(exploreCache.sections);
@@ -63,7 +64,7 @@
   </div>
 {:else if sections.length === 0}
   <div class="empty-state">
-    <p class="empty-title">Nothing here yet</p>
+    <p class="empty-title"><WormText text="Nothing here yet" /></p>
     <p class="empty-sub">Search and play some tracks to get personalized recommendations</p>
   </div>
 {:else}
@@ -141,7 +142,6 @@
     font-size: 1.2rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
-    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; }

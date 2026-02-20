@@ -2,6 +2,7 @@
   import { playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import WormText from "./WormText.svelte";
   import type { Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
@@ -105,7 +106,7 @@
 
   {#if queue.length === 0}
     <div class="empty-state">
-      <p class="empty-title">Queue is empty</p>
+      <p class="empty-title"><WormText text="Queue is empty" /></p>
       <p class="empty-sub">Right-click tracks to add them to the queue</p>
     </div>
   {:else}
@@ -228,7 +229,6 @@
     font-size: 1.1rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
-    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; }

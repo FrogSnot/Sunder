@@ -12,6 +12,7 @@
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
+  import WormText from "./WormText.svelte";
   import type { Playlist, Track } from "../types";
 
   let playlists = $state<Playlist[]>([]);
@@ -287,7 +288,7 @@
 
     {#if playlists.length === 0}
       <div class="empty-state">
-        <p class="empty-title">No playlists yet</p>
+        <p class="empty-title"><WormText text="No playlists yet" /></p>
         <p class="empty-sub">Create one above to get started</p>
       </div>
     {:else}
@@ -400,7 +401,6 @@
     font-size: 1.1rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
-    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub { font-size: 0.85rem; color: var(--text-muted); }

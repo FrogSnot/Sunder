@@ -3,6 +3,7 @@
   import { player } from "../state/player.svelte";
   import { searchState } from "../state/search.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import WormText from "./WormText.svelte";
   import type { Track } from "../types";
 
   let tracks = $derived(searchState.results);
@@ -36,7 +37,7 @@
 
 {#if tracks.length === 0}
   <div class="empty-state">
-    <p class="empty-title">Search for something</p>
+    <p class="empty-title"><WormText text="Search for something" /></p>
     <p class="empty-sub">Results will appear here</p>
   </div>
 {:else}
@@ -80,7 +81,6 @@
     font-size: 1.2rem;
     color: var(--text-secondary);
     margin-bottom: 4px;
-    animation: float 4s ease-in-out infinite;
   }
 
   .empty-sub {
