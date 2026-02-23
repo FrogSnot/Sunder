@@ -19,7 +19,14 @@ export async function playTrack(track: Track): Promise<void> {
   const idx = player.queue.findIndex((t) => t.id === track.id);
   if (idx !== -1) {
     player.queueIndex = idx;
+  } else {
+    const insertAt = player.queueIndex + 1;
+    const updated = [...player.queue];
+    updated.splice(insertAt, 0, track);
+    player.queue = updated;
+    player.queueIndex = insertAt;
   }
+  player.prefetchAhead(player.queueIndex);
   await invoke("play_track", { trackId: track.id });
 }
 

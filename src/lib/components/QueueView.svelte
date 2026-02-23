@@ -10,6 +10,10 @@
   let queue = $derived(player.queue);
   let currentIndex = $derived(player.queueIndex);
 
+  let nowPlaying = $derived(currentIndex >= 0 && currentIndex < queue.length ? queue[currentIndex] : null);
+  let upNext = $derived(queue.slice(currentIndex + 1));
+  let played = $derived(currentIndex > 0 ? queue.slice(0, currentIndex) : []);
+
   let dragFrom = $state(-1);
   let dragOver = $state(-1);
   let dragging = $state(false);
@@ -110,49 +114,90 @@
       <p class="empty-sub">Right-click tracks to add them to the queue</p>
     </div>
   {:else}
-    <div class="queue-info">
-      <span>{queue.length} track{queue.length === 1 ? "" : "s"}</span>
-    </div>
-    <div class="track-list">
-      {#each queue as track, i (track.id + "-" + i)}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="track-row"
-          class:active={isActive(i)}
-          class:drag-over={dragging && dragOver === i && dragFrom !== i}
-          class:dragging={dragging && dragFrom === i}
-          data-idx={i}
+    {#if nowPlaying}
+      <div class="section-label">Now Playing</div>
+      <div class="now-playing-card">
+        <button
+          class="track-play np-track"
+          onclick={() => handlePlay(currentIndex)}
+          oncontextmenu={(e) => handleContext(e, nowPlaying)}
         >
+          <img class="thumb np-thumb" src={nowPlaying.thumbnail || ""} alt="" loading="lazy" />
+          <div class="track-info">
+            <span class="track-title np-title">{nowPlaying.title}</span>
+            <span class="track-artist">{nowPlaying.artist}</span>
+          </div>
+          <span class="track-duration">{formatDuration(nowPlaying.duration_secs)}</span>
+        </button>
+      </div>
+    {/if}
+
+    {#if upNext.length > 0}
+      <div class="section-label next-label">Next Up <span class="section-count">{upNext.length}</span></div>
+      <div class="track-list">
+        {#each upNext as track, i (track.id + "-next-" + i)}
+          {@const queueIdx = currentIndex + 1 + i}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="drag-handle"
-            onpointerdown={(e) => onPointerDown(e, i)}
-            onpointermove={onPointerMove}
-            onpointerup={onPointerUp}
+          <div
+            class="track-row"
+            class:drag-over={dragging && dragOver === queueIdx && dragFrom !== queueIdx}
+            class:dragging={dragging && dragFrom === queueIdx}
+            data-idx={queueIdx}
           >
-            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-          </span>
-          <span class="track-num">{i + 1}</span>
-          <button
-            class="track-play"
-            onclick={() => handlePlay(i)}
-            oncontextmenu={(e) => handleContext(e, track)}
-          >
-            <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
-            <div class="track-info">
-              <span class="track-title">{track.title}</span>
-              <span class="track-artist">{track.artist}</span>
-            </div>
-            <span class="track-duration">{formatDuration(track.duration_secs)}</span>
-          </button>
-          <button class="remove-btn" onclick={() => handleRemove(i)} aria-label="Remove from queue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-      {/each}
-    </div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span
+              class="drag-handle"
+              onpointerdown={(e) => onPointerDown(e, queueIdx)}
+              onpointermove={onPointerMove}
+              onpointerup={onPointerUp}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+            </span>
+            <span class="track-num">{i + 1}</span>
+            <button
+              class="track-play"
+              onclick={() => handlePlay(queueIdx)}
+              oncontextmenu={(e) => handleContext(e, track)}
+            >
+              <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
+              <div class="track-info">
+                <span class="track-title">{track.title}</span>
+                <span class="track-artist">{track.artist}</span>
+              </div>
+              <span class="track-duration">{formatDuration(track.duration_secs)}</span>
+            </button>
+            <button class="remove-btn" onclick={() => handleRemove(queueIdx)} aria-label="Remove from queue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if played.length > 0}
+      <div class="section-label played-label">Previously Played</div>
+      <div class="track-list played-list">
+        {#each played as track, i (track.id + "-played-" + i)}
+          <div class="track-row played-row" data-idx={i}>
+            <span class="track-num">{i + 1}</span>
+            <button
+              class="track-play"
+              onclick={() => handlePlay(i)}
+              oncontextmenu={(e) => handleContext(e, track)}
+            >
+              <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
+              <div class="track-info">
+                <span class="track-title">{track.title}</span>
+                <span class="track-artist">{track.artist}</span>
+              </div>
+              <span class="track-duration">{formatDuration(track.duration_secs)}</span>
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -209,10 +254,28 @@
 
   .action-btn.clear:hover { color: var(--error); }
 
-  .queue-info {
-    font-size: 0.8rem;
+  .section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
     color: var(--text-muted);
-    padding: 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 4px 6px;
+  }
+
+  .section-label .section-count {
+    color: var(--text-muted);
+    font-weight: 400;
+    opacity: 0.6;
+  }
+
+  .next-label {
+    margin-top: 4px;
+  }
+
+  .played-label {
+    margin-top: 12px;
+    opacity: 0.6;
   }
 
   .empty-state {
@@ -280,10 +343,33 @@
   .track-row:hover .drag-handle { opacity: 1; }
   .drag-handle svg { width: 12px; height: 12px; }
 
-  .track-row.active {
+  .now-playing-card {
     background: var(--bg-elevated);
-    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
+    border-left: 3px solid var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .np-track {
+    padding: 12px 14px;
+  }
+
+  .np-thumb {
+    width: 48px;
+    height: 48px;
+    box-shadow: 0 0 16px rgba(212, 160, 23, 0.15);
+  }
+
+  .np-title {
+    color: var(--accent);
+  }
+
+  .played-list {
+    opacity: 0.5;
+  }
+
+  .played-row:hover {
+    opacity: 1;
   }
 
   .track-num {
