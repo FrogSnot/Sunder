@@ -262,8 +262,6 @@ fn start_streaming(
 
     let file = std::fs::File::open(&expected_path)
         .map_err(|e| crate::error::AppError::Io(e))?;
-    // Use a large read buffer (512 KB) so the decoder's header scan completes
-    // in a handful of syscalls rather than thousands of small reads.
     let decoder = Decoder::new(io::BufReader::with_capacity(512 * 1024, file))
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 

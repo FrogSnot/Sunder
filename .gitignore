@@ -8,6 +8,4 @@ src-tauri/target/
 *.swo
 .DS_Store
 
-README.md
-ROADMAP.md
 src-tauri/examples/bench_playback.rs

@@ -1,0 +1,120 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libfuse2
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Syncing version to $VERSION"
+          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
+          sed -i.bak "0,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/tauri.conf.json.bak package.json.bak src-tauri/Cargo.toml.bak
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload .deb
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-linux-deb
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+
+      - name: Upload .AppImage
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-linux-appimage
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload .dmg
+        if: matrix.bundles == 'dmg'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-macos-dmg-${{ matrix.target }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+      - name: Upload macOS app (x86_64)
+        if: matrix.bundles == 'app'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-macos-app-${{ matrix.target }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/macos/
+
+      - name: Upload NSIS installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-windows-nsis
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe

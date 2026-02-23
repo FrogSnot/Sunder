@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Sunder
+Comment=A desktop YouTube music client that doesn't spy on you
+Exec=sunder
+Icon=sunder
+Terminal=false
+Type=Application
+Categories=Audio;Music;Player;AudioVideo;
+Keywords=music;youtube;player;streaming;audio;
+StartupWMClass=sunder
