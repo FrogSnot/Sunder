@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { listPlaylists, addToPlaylist } from "../ipc/bridge";
+  import { listPlaylists, addToPlaylist, removeFromPlaylist } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
+  import { nav } from "../state/nav.svelte";
   import type { Playlist, Track } from "../types";
 
   let visible = $state(false);
@@ -10,6 +11,9 @@
   let playlists = $state<Playlist[]>([]);
   let showPlaylists = $state(false);
   let toast = $state("");
+
+  let inQueue = $derived(track !== null && player.queue.some((t) => t.id === track!.id));
+  let inPlaylist = $derived(nav.activePlaylistId !== null);
 
   export function open(e: MouseEvent, t: Track) {
     e.preventDefault();
@@ -59,6 +63,25 @@
     close();
   }
 
+  function handleRemoveFromQueue() {
+    if (!track) return;
+    const idx = player.queue.findIndex((t) => t.id === track!.id);
+    if (idx !== -1) player.removeFromQueue(idx);
+    showToast("Removed from queue");
+    close();
+  }
+
+  async function handleRemoveFromPlaylist() {
+    if (!track || nav.activePlaylistId === null) return;
+    try {
+      await removeFromPlaylist(nav.activePlaylistId, track.id);
+      showToast("Removed from playlist");
+    } catch (_) {
+      showToast("Failed to remove");
+    }
+    close();
+  }
+
   function showToast(msg: string) {
     toast = msg;
     setTimeout(() => { toast = ""; }, 2000);
@@ -84,6 +107,21 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add to playlist
       </button>
+      {#if inQueue || inPlaylist}
+        <div class="ctx-divider"></div>
+        {#if inQueue}
+          <button class="ctx-item ctx-danger" onclick={handleRemoveFromQueue}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="18" y1="3" x2="6" y2="15"/></svg>
+            Remove from queue
+          </button>
+        {/if}
+        {#if inPlaylist}
+          <button class="ctx-item ctx-danger" onclick={handleRemoveFromPlaylist}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="18" y1="3" x2="6" y2="15"/></svg>
+            Remove from playlist
+          </button>
+        {/if}
+      {/if}
     {:else}
       <div class="ctx-header">
         <button class="ctx-back" onclick={() => { showPlaylists = false; }} aria-label="Back">
@@ -145,6 +183,10 @@
     transform: scale(0.98);
   }
   .ctx-item svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
+
+  .ctx-item.ctx-danger { color: #e06c75; }
+  .ctx-item.ctx-danger svg { color: #e06c75; }
+  .ctx-item.ctx-danger:hover { background: rgba(224, 108, 117, 0.12); }
 
   .ctx-divider {
     height: 1px;
