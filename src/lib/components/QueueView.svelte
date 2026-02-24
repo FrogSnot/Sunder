@@ -1,7 +1,6 @@
 <script lang="ts">
   import { playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
-  import { flip } from "svelte/animate";
   import { fly, slide } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
@@ -147,9 +146,8 @@
             class:drag-over={dragging && dragOver === queueIdx && dragFrom !== queueIdx}
             class:dragging={dragging && dragFrom === queueIdx}
             data-idx={queueIdx}
-            animate:flip={{ duration: 250 }}
-            in:fly={{ x: 30, duration: 200, delay: Math.min(i * 30, 150) }}
-            out:slide={{ duration: 150 }}
+            in:fly={{ x: 24, duration: 200 }}
+            out:slide={{ duration: 180 }}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
@@ -190,9 +188,8 @@
           <div
             class="track-row played-row"
             data-idx={i}
-            animate:flip={{ duration: 250 }}
-            in:fly={{ x: -30, duration: 200, delay: Math.min(i * 30, 150) }}
-            out:slide={{ duration: 150 }}
+            in:fly={{ x: -24, duration: 200 }}
+            out:slide={{ duration: 180 }}
           >
             <span class="track-num">{i + 1}</span>
             <button
@@ -366,6 +363,7 @@
     border-radius: var(--radius);
     border-left: 3px solid var(--accent);
     margin-bottom: 4px;
+    transform-origin: top center;
   }
 
   .np-track {

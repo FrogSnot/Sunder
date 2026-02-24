@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { flip } from "svelte/animate";
   import {
     listPlaylists,
     createPlaylist,
@@ -242,6 +243,7 @@
             class:dragging={dragging && dragFrom === i}
             class:drag-over={dragging && dragOverIdx === i && dragFrom !== i}
             data-idx={i}
+            animate:flip={{ duration: 250 }}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span

@@ -119,13 +119,13 @@
         <div class="ctx-divider"></div>
         {#if inQueue}
           <button class="ctx-item ctx-danger" onclick={handleRemoveFromQueue}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="18" y1="3" x2="6" y2="15"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             Remove from queue
           </button>
         {/if}
         {#if inPlaylist}
           <button class="ctx-item ctx-danger" onclick={handleRemoveFromPlaylist}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="18" y1="3" x2="6" y2="15"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             Remove from playlist
           </button>
         {/if}
