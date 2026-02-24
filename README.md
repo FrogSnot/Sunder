@@ -23,12 +23,25 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 
 ## Features
 
+### Playback
 - **YouTube search** with instant results and FTS5-powered local caching
-- **Native audio playback** via rodio, talking directly to ALSA/PipeWire/Pulse
-- **Explore** personalized recommendations built from your listening history
-- **Playlists** with full CRUD, drag-and-drop reordering, and quick-play
-- **Queue management** with shuffle, play next, reorder, and auto-advance
-- **Prefetching** silently pre-downloads next tracks for gapless playback
+- **Native audio** via rodio, talking directly to ALSA/PipeWire/Pulse with no Web Audio overhead
+- **Smart error recovery** if a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
+- **Retry with bypass** yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
+- **Prefetching** silently pre-downloads upcoming tracks for seamless transitions
+
+### Queue
+- **Three-section view**: Now Playing card, Next Up (with drag-to-reorder), Previously Played
+- **Fluid animations** track cards slide and flip into position when the song changes, when you drag-reorder, or when tracks enter/leave the queue
+- **Context menu integration** right-click any track to play next, add/remove from queue, add to or remove from a playlist
+- **Auto-advance**: queue advances automatically on track end; stops gracefully after 3 consecutive errors
+
+### Playlists
+- **Full CRUD** with inline rename, quick-play, and drag-to-reorder
+- **Remove from context menu** right-click any track to remove it from the current playlist
+
+### App
+- **Explore** with personalized recommendations built from your listening history
 - **Warm animated UI** with spring physics, staggered entrances, glow pulses, and micro-interactions
 - **~15MB binary** with release optimizations (LTO, strip, single codegen unit)
 - **Zero telemetry**. Nothing leaves your machine except YouTube search queries
@@ -149,9 +162,9 @@ Warm, golden-tinted dark palette designed for long listening sessions:
 
 - **Base**: Deep warm blacks (`#0f0e0d`, `#181614`)
 - **Accent**: Burnished gold (`#e0a820`) with ambient glow effects
-- **Animations**: 11 custom keyframe animations including spring physics, staggered cascades, equalizer loaders, and floating idle states
+- **Animations**: 11+ custom keyframe animations including spring physics, staggered cascades, equalizer loaders, and floating idle states
 
-Every interaction has tactile feedback. Buttons snap with spring easing, tracks lift on hover, active items pulse with a warm glow.
+Every interaction has tactile feedback. Buttons snap with spring easing, tracks lift on hover, active items pulse with a warm glow. The queue uses Svelte's `flip` and `fly` transitions so card positions animate smoothly during reorder and song changes -- tracks cascade up one by one when a new song starts, and slide out cleanly when removed.
 
 ## Data
 
