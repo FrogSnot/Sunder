@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { listPlaylists, addToPlaylist, removeFromPlaylist } from "../ipc/bridge";
+  import { listPlaylists, addToPlaylist, removeFromPlaylist, playlistsContainingTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
   import type { Playlist, Track } from "../types";
@@ -11,6 +11,7 @@
   let playlists = $state<Playlist[]>([]);
   let showPlaylists = $state(false);
   let toast = $state("");
+  let trackPlaylistIds = $state<Set<number>>(new Set());
 
   let inQueue = $derived(track !== null && player.queue.some((t) => t.id === track!.id));
   let inPlaylist = $derived(nav.activePlaylistId !== null);
@@ -48,7 +49,14 @@
   }
 
   async function expandPlaylists() {
-    try { playlists = await listPlaylists(); } catch (_) {}
+    try {
+      const [pls, ids] = await Promise.all([
+        listPlaylists(),
+        track ? playlistsContainingTrack(track.id) : Promise.resolve([]),
+      ]);
+      playlists = pls;
+      trackPlaylistIds = new Set(ids);
+    } catch (_) {}
     showPlaylists = true;
   }
 
@@ -133,8 +141,13 @@
         <span class="ctx-empty">No playlists yet</span>
       {:else}
         {#each playlists as p (p.id)}
-          <button class="ctx-item" onclick={() => handleAdd(p.id)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          {@const alreadyIn = trackPlaylistIds.has(p.id)}
+          <button class="ctx-item" class:ctx-muted={alreadyIn} onclick={() => { if (!alreadyIn) handleAdd(p.id); }} disabled={alreadyIn}>
+            {#if alreadyIn}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            {:else}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            {/if}
             {p.name}
           </button>
         {/each}
@@ -187,6 +200,10 @@
   .ctx-item.ctx-danger { color: #e06c75; }
   .ctx-item.ctx-danger svg { color: #e06c75; }
   .ctx-item.ctx-danger:hover { background: rgba(224, 108, 117, 0.12); }
+
+  .ctx-item.ctx-muted { color: var(--text-muted); opacity: 0.6; cursor: default; }
+  .ctx-item.ctx-muted:hover { background: none; transform: none; }
+  .ctx-item.ctx-muted svg { color: var(--success); }
 
   .ctx-divider {
     height: 1px;

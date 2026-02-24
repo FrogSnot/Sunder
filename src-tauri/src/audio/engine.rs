@@ -1,4 +1,4 @@
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -119,7 +119,11 @@ fn audio_thread(
                         }
                         Err(e) => {
                             eprintln!("[sunder] playback error: {e}");
-                            *state.write().unwrap() = PlaybackState::Error(e.to_string());
+                            let _ = app.emit("playback-error", serde_json::json!({
+                                "video_id": video_id,
+                                "error": e.to_string(),
+                            }));
+                            *state.write().unwrap() = PlaybackState::Idle;
                         }
                     }
                 }
@@ -204,46 +208,90 @@ fn start_streaming(
             "percent": 0.0, "stage": "preparing"
         }));
 
-        let mut child = Command::new(&bin)
-            .args([
-                &url,
-                "--extract-audio",
-                "--audio-format", "mp3",
-                "--audio-quality", "2",
-                "-o", out_template.to_str().unwrap_or_default(),
-                "--no-playlist",
-                "--newline",
-                "--concurrent-fragments", "4",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}")))?;
+        let out_path_str = out_template.to_str().unwrap_or_default();
+        let base_args: Vec<&str> = vec![
+            url.as_str(),
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "2",
+            "-o", out_path_str,
+            "--no-playlist",
+            "--newline",
+            "--concurrent-fragments", "4",
+        ];
+        let fallback_args: &[&str] = &["--force-ipv4", "--geo-bypass", "--extractor-retries", "3"];
+        let mut last_error = String::new();
 
-        if let Some(stdout) = child.stdout.take() {
-            for line in io::BufReader::new(stdout).lines().flatten() {
-                if let Some(pct) = parse_download_pct(&line) {
-                    let _ = app.emit("download-progress", serde_json::json!({
-                        "percent": pct, "stage": "downloading"
-                    }));
-                } else if line.contains("[ExtractAudio]") {
-                    let _ = app.emit("download-progress", serde_json::json!({
-                        "percent": 100.0, "stage": "converting"
-                    }));
-                } else if line.contains("[youtube]") || line.contains("[info]") {
-                    let _ = app.emit("download-progress", serde_json::json!({
-                        "percent": 0.0, "stage": "extracting"
-                    }));
+        for attempt in 0..2u8 {
+            if attempt > 0 {
+                eprintln!("[sunder] retrying download (attempt {})", attempt + 1);
+                for ext in ["mp3", "webm", "m4a", "opus", "part", "webm.part", "m4a.part"] {
+                    let _ = std::fs::remove_file(cache_dir.join(format!("{video_id}.{ext}")));
                 }
             }
+
+            let mut args = base_args.clone();
+            if attempt > 0 {
+                args.extend_from_slice(fallback_args);
+            }
+
+            let mut child = match Command::new(&bin)
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => return Err(crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}"))),
+            };
+
+            if let Some(stdout) = child.stdout.take() {
+                for line in io::BufReader::new(stdout).lines().flatten() {
+                    if let Some(pct) = parse_download_pct(&line) {
+                        let _ = app.emit("download-progress", serde_json::json!({
+                            "percent": pct, "stage": "downloading"
+                        }));
+                    } else if line.contains("[ExtractAudio]") {
+                        let _ = app.emit("download-progress", serde_json::json!({
+                            "percent": 100.0, "stage": "converting"
+                        }));
+                    } else if line.contains("[youtube]") || line.contains("[info]") {
+                        let _ = app.emit("download-progress", serde_json::json!({
+                            "percent": 0.0, "stage": "extracting"
+                        }));
+                    }
+                }
+            }
+
+            let status = match child.wait() {
+                Ok(s) => s,
+                Err(e) => return Err(crate::error::AppError::Extraction(format!("yt-dlp wait: {e}"))),
+            };
+
+            if status.success() && expected_path.exists() {
+                last_error.clear();
+                break;
+            }
+
+            let stderr_out = child.stderr.take()
+                .map(|mut s| {
+                    let mut buf = String::new();
+                    let _ = s.read_to_string(&mut buf);
+                    buf
+                })
+                .unwrap_or_default();
+
+            last_error = if !stderr_out.is_empty() {
+                let trimmed = stderr_out.trim();
+                eprintln!("[sunder] yt-dlp stderr (attempt {}): {}", attempt + 1, trimmed);
+                format!("yt-dlp failed ({}): {}", status, trimmed.lines().last().unwrap_or(trimmed))
+            } else {
+                format!("yt-dlp failed ({})", status)
+            };
         }
 
-        let status = child.wait()
-            .map_err(|e| crate::error::AppError::Extraction(format!("yt-dlp wait: {e}")))?;
-        if !status.success() {
-            return Err(crate::error::AppError::Extraction(
-                format!("yt-dlp failed ({})", status),
-            ));
+        if !last_error.is_empty() {
+            return Err(crate::error::AppError::Extraction(last_error));
         }
 
         if !expected_path.exists() {

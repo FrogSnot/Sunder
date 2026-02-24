@@ -91,6 +91,10 @@ export async function getPlaylistTracks(playlistId: number): Promise<Track[]> {
   return invoke<Track[]>("get_playlist_tracks", { playlistId });
 }
 
+export async function playlistsContainingTrack(trackId: string): Promise<number[]> {
+  return invoke<number[]>("playlists_containing_track", { trackId });
+}
+
 export async function reorderPlaylistTracks(playlistId: number, trackIds: string[]): Promise<void> {
   await invoke("reorder_playlist_tracks", { playlistId, trackIds });
 }
@@ -107,6 +111,7 @@ export function initProgressListener(): () => void {
   let unlistenProgress: (() => void) | undefined;
   let unlistenDownload: (() => void) | undefined;
   let unlistenFinished: (() => void) | undefined;
+  let unlistenError: (() => void) | undefined;
 
   listen<PlaybackProgress>("playback-progress", (event) => {
     player.updateFromProgress(event.payload);
@@ -121,9 +126,27 @@ export function initProgressListener(): () => void {
     playNextInQueue();
   }).then((fn) => { unlistenFinished = fn; });
 
+  listen<{ video_id: string; error: string }>("playback-error", (event) => {
+    const failedId = event.payload.video_id;
+    player.lastError = event.payload.error;
+    player.consecutiveErrors++;
+    player.isBuffering = false;
+    player.failedTrack = player.currentTrack;
+    player.downloadStage = "error";
+
+    if (player.consecutiveErrors < 3 && player.hasNext) {
+      setTimeout(() => {
+        if (player.currentTrack?.id === failedId && !player.findingAlt) {
+          playNextInQueue();
+        }
+      }, 4000);
+    }
+  }).then((fn) => { unlistenError = fn; });
+
   return () => {
     unlistenProgress?.();
     unlistenDownload?.();
     unlistenFinished?.();
+    unlistenError?.();
   };
 }

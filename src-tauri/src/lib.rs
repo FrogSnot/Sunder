@@ -42,6 +42,7 @@ pub fn run() {
             ipc::commands::rename_playlist,
             ipc::commands::add_to_playlist,
             ipc::commands::remove_from_playlist,
+            ipc::commands::playlists_containing_track,
             ipc::commands::get_playlist_tracks,
             ipc::commands::reorder_playlist_tracks,
             ipc::commands::get_recently_played,

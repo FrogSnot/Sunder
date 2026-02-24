@@ -17,6 +17,10 @@ class PlayerState {
   playbackState = $state("idle");
   downloadPercent = $state(0);
   downloadStage = $state("");
+  consecutiveErrors = $state(0);
+  lastError = $state("");
+  failedTrack = $state<Track | null>(null);
+  findingAlt = $state(false);
 
   progress = $derived(this.duration > 0 ? this.currentTime / this.duration : 0);
   formattedTime = $derived(formatTime(this.currentTime));
@@ -35,6 +39,10 @@ class PlayerState {
     if (this.isPlaying) {
       this.downloadStage = "";
       this.downloadPercent = 0;
+      this.consecutiveErrors = 0;
+      this.lastError = "";
+      this.failedTrack = null;
+      this.findingAlt = false;
     }
   }
 

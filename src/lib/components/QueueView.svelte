@@ -1,6 +1,8 @@
 <script lang="ts">
   import { playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
+  import { flip } from "svelte/animate";
+  import { fly, slide } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Track } from "../types";
@@ -116,26 +118,28 @@
   {:else}
     {#if nowPlaying}
       <div class="section-label">Now Playing</div>
-      <div class="now-playing-card">
-        <button
-          class="track-play np-track"
-          onclick={() => handlePlay(currentIndex)}
-          oncontextmenu={(e) => handleContext(e, nowPlaying)}
-        >
-          <img class="thumb np-thumb" src={nowPlaying.thumbnail || ""} alt="" loading="lazy" />
-          <div class="track-info">
-            <span class="track-title np-title">{nowPlaying.title}</span>
-            <span class="track-artist">{nowPlaying.artist}</span>
-          </div>
-          <span class="track-duration">{formatDuration(nowPlaying.duration_secs)}</span>
-        </button>
-      </div>
+      {#key nowPlaying.id}
+        <div class="now-playing-card" in:fly={{ y: -20, duration: 300 }}>
+          <button
+            class="track-play np-track"
+            onclick={() => handlePlay(currentIndex)}
+            oncontextmenu={(e) => handleContext(e, nowPlaying)}
+          >
+            <img class="thumb np-thumb" src={nowPlaying.thumbnail || ""} alt="" loading="lazy" />
+            <div class="track-info">
+              <span class="track-title np-title">{nowPlaying.title}</span>
+              <span class="track-artist">{nowPlaying.artist}</span>
+            </div>
+            <span class="track-duration">{formatDuration(nowPlaying.duration_secs)}</span>
+          </button>
+        </div>
+      {/key}
     {/if}
 
     {#if upNext.length > 0}
       <div class="section-label next-label">Next Up <span class="section-count">{upNext.length}</span></div>
       <div class="track-list">
-        {#each upNext as track, i (track.id + "-next-" + i)}
+        {#each upNext as track, i (track.id)}
           {@const queueIdx = currentIndex + 1 + i}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -143,6 +147,9 @@
             class:drag-over={dragging && dragOver === queueIdx && dragFrom !== queueIdx}
             class:dragging={dragging && dragFrom === queueIdx}
             data-idx={queueIdx}
+            animate:flip={{ duration: 250 }}
+            in:fly={{ x: 30, duration: 200, delay: Math.min(i * 30, 150) }}
+            out:slide={{ duration: 150 }}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
@@ -179,8 +186,14 @@
     {#if played.length > 0}
       <div class="section-label played-label">Previously Played</div>
       <div class="track-list played-list">
-        {#each played as track, i (track.id + "-played-" + i)}
-          <div class="track-row played-row" data-idx={i}>
+        {#each played as track, i (track.id)}
+          <div
+            class="track-row played-row"
+            data-idx={i}
+            animate:flip={{ duration: 250 }}
+            in:fly={{ x: -30, duration: 200, delay: Math.min(i * 30, 150) }}
+            out:slide={{ duration: 150 }}
+          >
             <span class="track-num">{i + 1}</span>
             <button
               class="track-play"

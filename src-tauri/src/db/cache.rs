@@ -226,6 +226,18 @@ impl SearchCache {
         Ok(())
     }
 
+    pub fn playlists_containing_track(&self, track_id: &str) -> Result<Vec<i64>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1",
+        )?;
+        let ids = stmt
+            .query_map(params![track_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
     pub fn get_playlist_tracks(&self, playlist_id: i64) -> Result<Vec<Track>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(

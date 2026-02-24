@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, search } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import ProgressBar from "./ProgressBar.svelte";
   import VolumeControl from "./VolumeControl.svelte";
@@ -26,6 +26,35 @@
     player.shuffle();
   }
 
+  async function findAlternative() {
+    const failed = player.failedTrack;
+    if (!failed || player.findingAlt) return;
+    player.findingAlt = true;
+    player.downloadStage = "finding";
+    try {
+      const query = `${failed.title} ${failed.artist}`;
+      const result = await search(query);
+      const alt = result.tracks.find((t) => t.id !== failed.id);
+      if (alt) {
+        player.failedTrack = null;
+        player.findingAlt = false;
+        await playTrack(alt);
+      } else {
+        player.downloadStage = "no-alt";
+        player.findingAlt = false;
+      }
+    } catch (_) {
+      player.downloadStage = "no-alt";
+      player.findingAlt = false;
+    }
+  }
+
+  function dismissError() {
+    player.failedTrack = null;
+    player.downloadStage = "";
+    player.lastError = "";
+  }
+
   let hasTrack = $derived(player.currentTrack !== null);
 </script>
 
@@ -33,7 +62,38 @@
   {#if player.currentTrack}
     <ProgressBar />
 
-    {#if player.isBuffering && player.downloadStage}
+    {#if player.downloadStage === "error" || player.downloadStage === "finding" || player.downloadStage === "no-alt"}
+      <div class="error-banner">
+        <div class="error-banner-left">
+          <svg class="dl-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <div class="error-banner-text">
+            <span class="error-main">Track unavailable</span>
+            {#if player.downloadStage === "finding"}
+              <span class="error-sub">Searching for alternative...</span>
+            {:else if player.downloadStage === "no-alt"}
+              <span class="error-sub">No alternative found</span>
+            {:else if player.hasNext}
+              <span class="error-sub">Auto-skipping in a few seconds</span>
+            {:else}
+              <span class="error-sub">No more tracks in queue</span>
+            {/if}
+          </div>
+        </div>
+        <div class="error-banner-actions">
+          {#if player.downloadStage === "finding"}
+            <div class="dl-spinner"></div>
+          {:else if player.downloadStage !== "no-alt"}
+            <button class="error-btn alt-btn" onclick={findAlternative}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Find Alternative
+            </button>
+          {/if}
+          <button class="error-btn dismiss-btn" onclick={dismissError} aria-label="Dismiss">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+    {:else if player.isBuffering && player.downloadStage}
       <div class="download-status">
         {#if player.downloadStage === "downloading"}
           <div class="dl-bar">
@@ -302,5 +362,81 @@
     font-size: 0.7rem;
     color: var(--text-muted);
     white-space: nowrap;
+  }
+
+  .error-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 24px;
+    background: rgba(224, 108, 117, 0.08);
+    border-bottom: 1px solid rgba(224, 108, 117, 0.15);
+    animation: toastSlide 300ms var(--ease-out-expo);
+  }
+
+  .error-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .error-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .error-main {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #e06c75;
+  }
+
+  .error-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .error-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .error-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: background 150ms ease, transform 150ms var(--ease-spring);
+  }
+
+  .error-btn:hover { transform: scale(1.05); }
+  .error-btn:active { transform: scale(0.95); }
+  .error-btn svg { width: 13px; height: 13px; }
+
+  .alt-btn {
+    background: var(--accent-dim);
+    color: var(--accent-light);
+  }
+  .alt-btn:hover { background: var(--accent); color: #121212; }
+
+  .dismiss-btn {
+    color: var(--text-muted);
+    padding: 5px;
+  }
+  .dismiss-btn:hover { color: var(--text-primary); }
+
+  .dl-error-icon {
+    width: 14px;
+    height: 14px;
+    color: #e06c75;
+    flex-shrink: 0;
   }
 </style>

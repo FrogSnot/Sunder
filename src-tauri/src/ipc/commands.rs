@@ -134,6 +134,11 @@ pub async fn remove_from_playlist(playlist_id: i64, track_id: String, db: State<
 }
 
 #[tauri::command]
+pub async fn playlists_containing_track(track_id: String, db: State<'_, SearchCache>) -> Result<Vec<i64>, String> {
+    db.playlists_containing_track(&track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_playlist_tracks(playlist_id: i64, db: State<'_, SearchCache>) -> Result<Vec<Track>, String> {
     db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())
 }

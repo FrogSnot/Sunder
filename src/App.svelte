@@ -63,7 +63,7 @@
   .content {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 24px 24px 120px;
   }
 
   .search-section {
