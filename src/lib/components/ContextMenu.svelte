@@ -4,6 +4,8 @@
   import { nav } from "../state/nav.svelte";
   import type { Playlist, Track } from "../types";
 
+  let { onRemoveFromPlaylist = undefined }: { onRemoveFromPlaylist?: (trackId: string) => void } = $props();
+
   let visible = $state(false);
   let x = $state(0);
   let y = $state(0);
@@ -81,8 +83,10 @@
 
   async function handleRemoveFromPlaylist() {
     if (!track || nav.activePlaylistId === null) return;
+    const removedId = track.id;
     try {
-      await removeFromPlaylist(nav.activePlaylistId, track.id);
+      await removeFromPlaylist(nav.activePlaylistId, removedId);
+      onRemoveFromPlaylist?.(removedId);
       showToast("Removed from playlist");
     } catch (_) {
       showToast("Failed to remove");

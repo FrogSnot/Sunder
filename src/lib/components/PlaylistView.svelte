@@ -13,8 +13,11 @@
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Playlist, Track } from "../types";
+
+  let ctxMenu: ReturnType<typeof ContextMenu>;
 
   let playlists = $state<Playlist[]>([]);
   let detailTracks = $state<Track[]>([]);
@@ -213,6 +216,8 @@
   }
 </script>
 
+<ContextMenu bind:this={ctxMenu} onRemoveFromPlaylist={(id) => { detailTracks = detailTracks.filter((t) => t.id !== id); }} />
+
 {#if viewing}
   <div class="detail">
     <button class="back-btn" onclick={goBack}>
@@ -244,6 +249,7 @@
             class:drag-over={dragging && dragOverIdx === i && dragFrom !== i}
             data-idx={i}
             animate:flip={{ duration: 250 }}
+            oncontextmenu={(e) => ctxMenu.open(e, track)}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
