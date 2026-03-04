@@ -30,10 +30,18 @@ export async function playTrack(track: Track): Promise<void> {
   await invoke("play_track", { trackId: track.id });
 }
 
+let advancing = false;
+
 async function playNextInQueue(): Promise<void> {
-  const next = player.nextTrack();
-  if (next) {
-    await playTrack(next);
+  if (advancing) return;
+  advancing = true;
+  try {
+    const next = player.nextTrack();
+    if (next) {
+      await playTrack(next);
+    }
+  } finally {
+    advancing = false;
   }
 }
 

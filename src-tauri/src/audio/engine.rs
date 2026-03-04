@@ -165,16 +165,36 @@ fn audio_thread(
             }
         }
 
+        let mut track_ended = false;
+
         if let Some(ref s) = sink {
             if !s.empty() {
                 let pos = s.get_pos();
-                position_ms.store(pos.as_millis() as u64, Ordering::Release);
+                let pos_ms = pos.as_millis() as u64;
+                let dur = duration_ms.load(Ordering::Relaxed);
+                position_ms.store(pos_ms, Ordering::Release);
+
+                // Force completion if position far exceeds reported duration
+                // (guards against decoders that don't EOF cleanly)
+                if dur > 0 && pos_ms > dur + 2000 && *state.read().unwrap() == PlaybackState::Playing {
+                    eprintln!(
+                        "[sunder] position ({pos_ms}ms) exceeded duration ({dur}ms), forcing track end"
+                    );
+                    track_ended = true;
+                }
             } else if *state.read().unwrap() == PlaybackState::Playing {
-                *state.write().unwrap() = PlaybackState::Idle;
-                position_ms.store(0, Ordering::Release);
-                let _ = app.emit("track-finished", ());
                 eprintln!("[sunder] track finished");
+                track_ended = true;
             }
+        }
+
+        if track_ended {
+            if let Some(s) = sink.take() {
+                s.stop();
+            }
+            *state.write().unwrap() = PlaybackState::Idle;
+            position_ms.store(0, Ordering::Release);
+            let _ = app.emit("track-finished", ());
         }
 
         emit_state(&app, &state, &position_ms, &duration_ms);
