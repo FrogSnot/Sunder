@@ -32,3 +32,8 @@ export interface ExploreSection {
 export interface ExploreData {
   sections: ExploreSection[];
 }
+
+export interface EqSettings {
+  enabled: boolean;
+  gains: number[];
+}

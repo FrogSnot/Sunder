@@ -5,6 +5,7 @@ use tauri::State;
 
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
+use crate::audio::equalizer::BAND_COUNT;
 use crate::db::SearchCache;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
@@ -95,6 +96,34 @@ pub async fn get_playback_state(audio: State<'_, AudioHandle>) -> Result<serde_j
         "position_ms": pos,
         "duration_ms": dur,
         "volume": vol,
+    }))
+}
+
+#[tauri::command]
+pub async fn set_eq_gains(gains: Vec<f32>, audio: State<'_, AudioHandle>) -> Result<(), String> {
+    if gains.len() != BAND_COUNT {
+        return Err(format!("expected {BAND_COUNT} gain values"));
+    }
+    let mut arr = [0.0_f32; BAND_COUNT];
+    for (i, &g) in gains.iter().enumerate() {
+        arr[i] = g.clamp(-12.0, 12.0);
+    }
+    audio.eq_settings.write().unwrap().gains = arr;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_eq_enabled(enabled: bool, audio: State<'_, AudioHandle>) -> Result<(), String> {
+    audio.eq_settings.write().unwrap().enabled = enabled;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_eq_settings(audio: State<'_, AudioHandle>) -> Result<serde_json::Value, String> {
+    let s = audio.eq_settings.read().unwrap();
+    Ok(serde_json::json!({
+        "enabled": s.enabled,
+        "gains": s.gains.to_vec(),
     }))
 }
 

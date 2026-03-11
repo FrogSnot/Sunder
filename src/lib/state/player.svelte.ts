@@ -22,6 +22,11 @@ class PlayerState {
   failedTrack = $state<Track | null>(null);
   findingAlt = $state(false);
 
+  eqEnabled = $state(false);
+  eqGains = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  eqPreset = $state("Flat");
+  showEq = $state(false);
+
   progress = $derived(this.duration > 0 ? this.currentTime / this.duration : 0);
   formattedTime = $derived(formatTime(this.currentTime));
   formattedDuration = $derived(formatTime(this.duration));

@@ -48,6 +48,9 @@ pub fn run() {
             ipc::commands::get_recently_played,
             ipc::commands::get_explore,
             ipc::commands::prefetch_track,
+            ipc::commands::set_eq_gains,
+            ipc::commands::set_eq_enabled,
+            ipc::commands::get_eq_settings,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

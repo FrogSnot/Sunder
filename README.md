@@ -182,7 +182,7 @@ Audio is cached temporarily in `/tmp/sunder/` and automatically reused on replay
 - [ ] Lyrics display
 - [ ] Keyboard shortcuts / media key support
 - [ ] System tray with mini player
-- [ ] Audio equalizer
+- [X] Audio equalizer
 
 ## License
 

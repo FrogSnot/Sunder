@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData } from "../types";
+import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte";
 
 export async function search(query: string): Promise<SearchResult> {
@@ -113,6 +113,18 @@ export async function getRecentlyPlayed(): Promise<Track[]> {
 
 export async function getExplore(): Promise<ExploreData> {
   return invoke<ExploreData>("get_explore");
+}
+
+export async function setEqGains(gains: number[]): Promise<void> {
+  await invoke("set_eq_gains", { gains });
+}
+
+export async function setEqEnabled(enabled: boolean): Promise<void> {
+  await invoke("set_eq_enabled", { enabled });
+}
+
+export async function getEqSettings(): Promise<EqSettings> {
+  return invoke<EqSettings>("get_eq_settings");
 }
 
 export function initProgressListener(): () => void {

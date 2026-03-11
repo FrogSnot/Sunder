@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink, Source};
 use tauri::Emitter;
 
+use super::equalizer::{EqSettings, EqSource};
 use super::state::PlaybackState;
 
 pub enum AudioCommand {
@@ -24,6 +25,7 @@ pub struct AudioHandle {
     pub position_ms: Arc<AtomicU64>,
     pub duration_ms: Arc<AtomicU64>,
     pub volume: Arc<RwLock<f32>>,
+    pub eq_settings: Arc<RwLock<EqSettings>>,
 }
 
 impl AudioHandle {
@@ -33,6 +35,7 @@ impl AudioHandle {
         let position_ms = Arc::new(AtomicU64::new(0));
         let duration_ms = Arc::new(AtomicU64::new(0));
         let volume = Arc::new(RwLock::new(0.8_f32));
+        let eq_settings = Arc::new(RwLock::new(EqSettings::default()));
 
         let handle = Self {
             tx,
@@ -40,12 +43,13 @@ impl AudioHandle {
             position_ms: position_ms.clone(),
             duration_ms: duration_ms.clone(),
             volume: volume.clone(),
+            eq_settings: eq_settings.clone(),
         };
 
         std::thread::Builder::new()
             .name("sunder-audio".into())
             .spawn(move || {
-                audio_thread(rx, state, position_ms, duration_ms, volume, app);
+                audio_thread(rx, state, position_ms, duration_ms, volume, eq_settings, app);
             })
             .expect("failed to spawn audio thread");
 
@@ -67,6 +71,7 @@ fn audio_thread(
     position_ms: Arc<AtomicU64>,
     duration_ms: Arc<AtomicU64>,
     volume: Arc<RwLock<f32>>,
+    eq_settings: Arc<RwLock<EqSettings>>,
     app: tauri::AppHandle,
 ) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
@@ -111,7 +116,7 @@ fn audio_thread(
                     let vol = *volume.read().unwrap();
 
                     let t0 = std::time::Instant::now();
-                    match start_streaming(&video_id, &state, &stream_handle, vol, &app) {
+                    match start_streaming(&video_id, &state, &stream_handle, vol, &eq_settings, &app) {
                         Ok(new_sink) => {
                             eprintln!("[sunder] playback started ({:.1?})", t0.elapsed());
                             sink = Some(new_sink);
@@ -209,6 +214,7 @@ fn start_streaming(
     state: &Arc<RwLock<PlaybackState>>,
     stream_handle: &rodio::OutputStreamHandle,
     volume: f32,
+    eq_settings: &Arc<RwLock<EqSettings>>,
     app: &tauri::AppHandle,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
@@ -336,7 +342,7 @@ fn start_streaming(
     let sink = Sink::try_new(stream_handle)
         .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
-    sink.append(decoder);
+    sink.append(EqSource::new(decoder.convert_samples(), eq_settings.clone()));
 
     Ok(sink)
 }
