@@ -1,6 +1,6 @@
 <script lang="ts">
   import { seek } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
+  import { player } from "../state/player.svelte.ts";
 
   let isDragging = $state(false);
   let hoverX = $state<number | null>(null);

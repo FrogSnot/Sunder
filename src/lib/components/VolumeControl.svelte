@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setVolume } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
+  import { player } from "../state/player.svelte.ts";
 
   let muted = $state(false);
   let premuteVolume = $state(0.8);

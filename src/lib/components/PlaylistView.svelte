@@ -10,9 +10,10 @@
     reorderPlaylistTracks,
     renamePlaylist,
     playTrack,
+    importYtPlaylist,
   } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
-  import { nav } from "../state/nav.svelte";
+  import { player } from "../state/player.svelte.ts";
+  import { nav } from "../state/nav.svelte.ts";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Playlist, Track } from "../types";
@@ -23,6 +24,10 @@
   let detailTracks = $state<Track[]>([]);
   let newName = $state("");
   let creating = $state(false);
+
+  let importUrl = $state("");
+  let importing = $state(false);
+  let importError = $state("");
 
   let viewing = $derived(nav.activeTab === "playlist-detail" && nav.activePlaylistId !== null);
 
@@ -52,6 +57,22 @@
       console.error("create playlist:", e);
     } finally {
       creating = false;
+    }
+  }
+
+  async function handleImport() {
+    const url = importUrl.trim();
+    if (!url) return;
+    importing = true;
+    importError = "";
+    try {
+      await importYtPlaylist(url);
+      importUrl = "";
+      await refreshPlaylists();
+    } catch (e: any) {
+      importError = typeof e === "string" ? e : e?.message || "Import failed";
+    } finally {
+      importing = false;
     }
   }
 
@@ -294,6 +315,25 @@
       </button>
     </div>
 
+    <div class="create-row">
+      <input
+        type="text"
+        placeholder="YouTube Music playlist URL..."
+        bind:value={importUrl}
+        onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') handleImport(); }}
+      />
+      <button class="create-btn" onclick={handleImport} disabled={importing || !importUrl.trim()}>
+        {#if importing}
+          <span class="import-spinner"></span> Importing...
+        {:else}
+          ⬇ Import
+        {/if}
+      </button>
+    </div>
+    {#if importError}
+      <p class="import-error">{importError}</p>
+    {/if}
+
     {#if playlists.length === 0}
       <div class="empty-state">
         <p class="empty-title"><WormText text="No playlists yet" /></p>
@@ -412,6 +452,27 @@
   }
 
   .empty-sub { font-size: 0.85rem; color: var(--text-muted); }
+
+  .import-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg-overlay);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .import-error {
+    font-size: 0.8rem;
+    color: var(--error, #ef4444);
+    margin: -8px 0 12px;
+    padding: 0 4px;
+  }
 
   .list {
     display: flex;

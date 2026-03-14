@@ -25,9 +25,12 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 
 ### Playback
 - **YouTube search** with instant results and FTS5-powered local caching
+- **Dual-Source Search**: Automatically merges results from YouTube Music (for official releases) and regular YouTube (for remixes and covers) into a single, cohesive view
 - **Native audio** via rodio, talking directly to ALSA/PipeWire/Pulse with no Web Audio overhead
+- **Seamless Seeking**: Mutes the audio stream during seek operations to eliminate pops and glitches, providing a smooth navigation experience
 - **Smart error recovery** if a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
 - **Retry with bypass** yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
+- **Non-Blocking Preparation**: Implements session-based audio preparation, allowing you to skip tracks rapidly without blocking the audio thread or getting stuck in a "Preparing" state
 - **Prefetching** silently pre-downloads upcoming tracks for seamless transitions
 
 ### Queue
@@ -38,10 +41,13 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 
 ### Playlists
 - **Full CRUD** with inline rename, quick-play, and drag-to-reorder
+- **YouTube Music Import**: Effortlessly import entire YT Music playlists via URL. Sunder automatically detects the playlist name and fetches all tracks for your local collection
 - **Remove from context menu** right-click any track to remove it from the current playlist
 
 ### App
 - **Explore** with personalized recommendations built from your listening history
+- **Synced & Dynamic Lyrics**: Fetches synced lyrics from multiple high-quality sources (LRCLIB, Lyrics.ovh, etc.). If no synced lyrics are available, it automatically falls back to YouTube transcripts for maximum reliability
+- **User Configuration**: Highly customizable settings via a persistent configuration system. Adjust seek steps, volume increments, subtitle languages, and more to fit your workflow
 - **Warm animated UI** with spring physics, staggered entrances, glow pulses, and micro-interactions
 - **~15MB binary** with release optimizations (LTO, strip, single codegen unit)
 - **Zero telemetry**. Nothing leaves your machine except YouTube search queries
@@ -179,8 +185,8 @@ Audio is cached temporarily in `/tmp/sunder/` and automatically reused on replay
 ## Roadmap
 
 - [ ] Local track downloads with library management
-- [ ] Lyrics display
-- [ ] Keyboard shortcuts / media key support
+- [X] Lyrics display
+- [X] Keyboard shortcuts / media key support
 - [ ] System tray with mini player
 - [X] Audio equalizer
 
