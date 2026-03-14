@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getExplore, playTrack } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
-  import { exploreCache } from "../state/explore.svelte";
+  import { player } from "../state/player.svelte.ts";
+  import { exploreCache } from "../state/explore.svelte.ts";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Track } from "../types";

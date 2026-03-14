@@ -1,7 +1,7 @@
 <script lang="ts">
   import { playTrack } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
-  import { searchState } from "../state/search.svelte";
+  import { player } from "../state/player.svelte.ts";
+  import { searchState } from "../state/search.svelte.ts";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Track } from "../types";

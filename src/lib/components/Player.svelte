@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, search } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
+  import { player } from "../state/player.svelte.ts";
+  import { lyricsState } from "../state/lyrics.svelte.ts";
+  import { pause, resume, stop, playTrack, search, fetchLyrics } from "../ipc/bridge";
   import ProgressBar from "./ProgressBar.svelte";
   import VolumeControl from "./VolumeControl.svelte";
   import Equalizer from "./Equalizer.svelte";
@@ -21,6 +22,17 @@
   async function handleNext() {
     const next = player.nextTrack();
     if (next) await playTrack(next);
+  }
+
+  function toggleEqualizer() {
+    player.showEq = !player.showEq;
+  }
+
+  async function toggleLyrics() {
+    lyricsState.visible = !lyricsState.visible;
+    if (lyricsState.visible && player.currentTrack && lyricsState.trackId !== player.currentTrack.id) {
+      await fetchLyrics(player.currentTrack.artist, player.currentTrack.title, player.currentTrack.id, player.duration);
+    }
   }
 
   function handleShuffle() {
@@ -160,7 +172,25 @@
       </div>
 
       <div class="right-section">
-        <button class="ctrl-btn ctrl-sm" onclick={() => player.showEq = !player.showEq} aria-label="Equalizer" class:active-toggle={player.showEq}>
+        <button
+        class="ctrl-btn secondary"
+        class:active={lyricsState.visible}
+        onclick={toggleLyrics}
+        aria-label="Toggle lyrics"
+        title="Lyrics"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 18V5l12-2v13M9 10H5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2Z" />
+        </svg>
+      </button>
+
+      <button
+        class="ctrl-btn secondary"
+        class:active={player.showEq}
+        onclick={toggleEqualizer}
+        aria-label="Toggle equalizer"
+        title="Equalizer"
+      >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
             <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />

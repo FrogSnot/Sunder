@@ -1,7 +1,7 @@
 <script lang="ts">
   import { listPlaylists, addToPlaylist, removeFromPlaylist, playlistsContainingTrack } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
-  import { nav } from "../state/nav.svelte";
+  import { player } from "../state/player.svelte.ts";
+  import { nav } from "../state/nav.svelte.ts";
   import type { Playlist, Track } from "../types";
 
   let { onRemoveFromPlaylist = undefined }: { onRemoveFromPlaylist?: (trackId: string) => void } = $props();

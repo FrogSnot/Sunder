@@ -7,16 +7,79 @@
   import PlaylistView from "./lib/components/PlaylistView.svelte";
   import QueueView from "./lib/components/QueueView.svelte";
   import Player from "./lib/components/Player.svelte";
+  import LyricsView from "./lib/components/LyricsView.svelte";
   import { initProgressListener } from "./lib/ipc/bridge";
-  import { nav } from "./lib/state/nav.svelte";
+  import { nav } from "./lib/state/nav.svelte.ts";
+  import { player } from "./lib/state/player.svelte.ts";
+  import { config } from "./lib/state/config.svelte.ts";
+  import { 
+    pause, 
+    resume, 
+    seek, 
+    setVolume, 
+    playNext, 
+    playPrev 
+  } from "./lib/ipc/bridge";
 
   let cleanup: (() => void) | undefined;
 
+  function handleKeydown(e: KeyboardEvent) {
+    // Ignore if typing in an input
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      if (e.key === "Escape") {
+        target.blur();
+      }
+      return;
+    }
+
+    switch (e.key.toLowerCase()) {
+      case " ":
+        e.preventDefault();
+        if (player.isPlaying) pause();
+        else resume();
+        break;
+      case "arrowleft":
+        e.preventDefault();
+        seek(Math.max(0, player.currentTime - config.current.seek_step_secs));
+        break;
+      case "arrowright":
+        e.preventDefault();
+        seek(player.currentTime + config.current.seek_step_secs);
+        break;
+      case "arrowup":
+        e.preventDefault();
+        setVolume(Math.min(1, player.volume + config.current.volume_step));
+        break;
+      case "arrowdown":
+        e.preventDefault();
+        setVolume(Math.max(0, player.volume - config.current.volume_step));
+        break;
+      case "n":
+        playNext();
+        break;
+      case "p":
+        playPrev();
+        break;
+      case "f":
+        e.preventDefault();
+        nav.activeTab = "search";
+        // Give it a tiny bit of time to render and then focus
+        setTimeout(() => {
+          document.querySelector<HTMLInputElement>(".search-bar input")?.focus();
+        }, 50);
+        break;
+    }
+  }
+
   onMount(() => {
     cleanup = initProgressListener();
+    config.load();
     return () => cleanup?.();
   });
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <main class="app-shell">
   <Sidebar />
@@ -39,6 +102,8 @@
 
     <Player />
   </div>
+
+  <LyricsView />
 </main>
 
 <style>

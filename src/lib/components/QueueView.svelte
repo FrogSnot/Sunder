@@ -1,6 +1,6 @@
 <script lang="ts">
   import { playTrack } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
+  import { player } from "../state/player.svelte.ts";
   import { fly, slide } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";

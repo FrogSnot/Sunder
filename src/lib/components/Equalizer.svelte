@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setEqGains, setEqEnabled } from "../ipc/bridge";
-  import { player } from "../state/player.svelte";
+  import { player } from "../state/player.svelte.ts";
 
   const BANDS = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
 

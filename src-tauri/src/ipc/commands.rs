@@ -6,10 +6,12 @@ use tauri::State;
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
 use crate::audio::equalizer::BAND_COUNT;
+use crate::config::{AppConfig, ConfigManager};
 use crate::db::SearchCache;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
 
+/// Main search entry point. Merges results from local cache, YouTube Music, and YouTube.
 #[tauri::command]
 pub async fn search(
     query: String,
@@ -21,12 +23,39 @@ pub async fn search(
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });
     }
 
-    let tracks = extractor.search(&query, 10).await.map_err(|e| e.to_string())?;
+    // Search both YT Music and YouTube, merge results
+    let (music, youtube) = tokio::join!(
+        extractor.search(&query, 5),
+        extractor.search_youtube(&query, 5)
+    );
+
+    let mut seen = HashSet::new();
+    let mut tracks = Vec::new();
+
+    // YT Music results first (priority)
+    if let Ok(music_tracks) = music {
+        for t in music_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
+    // Then YouTube results (fill gaps)
+    if let Ok(yt_tracks) = youtube {
+        for t in yt_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
     let _ = db.upsert_tracks(&tracks);
 
     Ok(SearchResult { tracks, source: SearchSource::Remote })
 }
 
+/// Start playback for a track ID. Resolves duration and sends a Play command to the engine.
 #[tauri::command]
 pub async fn play_track(
     track_id: String,
@@ -178,6 +207,48 @@ pub async fn reorder_playlist_tracks(playlist_id: i64, track_ids: Vec<String>, d
 }
 
 #[tauri::command]
+pub async fn import_yt_playlist(
+    url: String,
+    playlist_name: String,
+    db: State<'_, SearchCache>,
+    extractor: State<'_, Extractor>,
+) -> Result<Playlist, String> {
+    let (extracted_name, tracks) = extractor.extract_playlist(&url).await.map_err(|e| e.to_string())?;
+    if tracks.is_empty() {
+        return Err("No tracks found in playlist".into());
+    }
+
+    // Use extracted name if client didn't provide one
+    let name = if playlist_name.trim().is_empty() {
+        extracted_name
+    } else {
+        playlist_name
+    };
+
+    let _ = db.upsert_tracks(&tracks);
+    let playlist = db.create_playlist(&name).map_err(|e| e.to_string())?;
+
+    for track in &tracks {
+        let _ = db.add_to_playlist(playlist.id, &track.id);
+    }
+
+    Ok(Playlist {
+        id: playlist.id,
+        name,
+        track_count: tracks.len() as i64,
+    })
+}
+
+/// Fetch track subtitles from YouTube if synced lyrics aren't found in other sources.
+#[tauri::command]
+pub async fn get_subtitles(
+    video_id: String,
+    extractor: State<'_, Extractor>,
+) -> Result<String, String> {
+    extractor.get_subtitles(&video_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn prefetch_track(
     track_id: String,
 ) -> Result<(), String> {
@@ -190,7 +261,7 @@ pub async fn prefetch_track(
     let bin = std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into());
     let url = format!("https://www.youtube.com/watch?v={track_id}");
     let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let _ = tokio::process::Command::new(&bin)
             .args([
                 &url,
@@ -356,4 +427,17 @@ fn chrono_minute() -> usize {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     (secs / 60) as usize
+}
+
+/// Retrieve the current application configuration.
+#[tauri::command]
+pub async fn get_config(config: State<'_, ConfigManager>) -> Result<AppConfig, String> {
+    Ok(config.get())
+}
+
+/// Persist a new application configuration.
+#[tauri::command]
+pub async fn set_config(new_config: AppConfig, config: State<'_, ConfigManager>) -> Result<(), String> {
+    config.update(new_config);
+    Ok(())
 }

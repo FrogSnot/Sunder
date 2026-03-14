@@ -1,6 +1,6 @@
 <script lang="ts">
   import { search, searchLocal } from "../ipc/bridge";
-  import { searchState } from "../state/search.svelte";
+  import { searchState } from "../state/search.svelte.ts";
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
