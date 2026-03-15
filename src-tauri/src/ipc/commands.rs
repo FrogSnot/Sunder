@@ -103,10 +103,11 @@ pub async fn play_track(
             
             // Download thumbnail if it doesn't exist
             if !thumb_square.exists() {
-                let _ = tokio::process::Command::new("curl")
-                    .args(["-L", "-s", "-o", thumb_orig.to_str().unwrap_or_default(), &thumb_url])
-                    .status()
-                    .await;
+                if let Ok(response) = reqwest::get(&thumb_url).await {
+                    if let Ok(bytes) = response.bytes().await {
+                        let _ = std::fs::write(&thumb_orig, bytes);
+                    }
+                }
 
                 if thumb_orig.exists() {
                     // Zoom and crop to centered square using ffmpeg

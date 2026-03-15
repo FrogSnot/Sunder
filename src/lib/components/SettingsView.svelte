@@ -74,7 +74,6 @@
             value={Math.round(config.current.volume_step * 100)} 
             onchange={(e) => {
               config.update({ volume_step: Number(e.currentTarget.value) / 100 });
-              triggerSave();
             }}
             min="1" max="50"
           />

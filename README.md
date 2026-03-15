@@ -35,7 +35,6 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **Prefetching**: Silently pre-downloads upcoming tracks for seamless transitions
 - **Media Key Support**: Fully integrated with system media controls (MPRIS on Linux). Control playback using your keyboard's hardware multimedia keys (Play/Pause, Next, Previous)
 - **System Tray**: Universal system tray icon with playback controls and window management, supporting quick access across all platforms
-- **System Tray**: Universal system tray icon with playback controls and window management, supporting quick access across all platforms
 
 ### Queue
 - **Three-section view**: Now Playing card, Next Up (with drag-to-reorder), Previously Played

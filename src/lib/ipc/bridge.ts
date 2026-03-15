@@ -214,6 +214,35 @@ function validateLyrics(currentArtist: string, currentTitle: string, resultArtis
   return titleMatch && artistMatch;
 }
 
+async function handleLrcResults(results: any[], artist: string, title: string, query?: string): Promise<boolean> {
+  if (!Array.isArray(results) || results.length === 0) return false;
+
+  const withSynced = results.find((r: any) => 
+    r.syncedLyrics && (query ? (query.toLowerCase().includes(r.trackName.toLowerCase()) || r.trackName.toLowerCase().includes(query.toLowerCase())) : validateLyrics(artist, title, r.artistName, r.trackName))
+  );
+  const best = withSynced || results.find((r: any) => 
+    query ? (query.toLowerCase().includes(r.trackName.toLowerCase()) || r.trackName.toLowerCase().includes(query.toLowerCase())) : validateLyrics(artist, title, r.artistName, r.trackName)
+  );
+
+  if (!best) return false;
+
+  if (best.syncedLyrics) {
+    const { parseLrc } = await import("../state/lyrics.svelte.ts");
+    const lines = parseLrc(best.syncedLyrics);
+    if (lines.length > 0) {
+      lyricsState.syncedLines = lines;
+      lyricsState.synced = true;
+    }
+  }
+
+  if (best.plainLyrics) {
+    lyricsState.content = best.plainLyrics;
+    lyricsState.source = "LRCLIB";
+  }
+
+  return lyricsState.synced || !!lyricsState.content;
+}
+
 async function tryLrclib(artist: string, title: string, durationSecs?: number): Promise<boolean> {
   try {
     const params = new URLSearchParams({
@@ -229,30 +258,8 @@ async function tryLrclib(artist: string, title: string, durationSecs?: number): 
     });
 
     if (!res.ok) return false;
-
     const results = await res.json();
-    if (!Array.isArray(results) || results.length === 0) return false;
-
-    const withSynced = results.find((r: any) => r.syncedLyrics && validateLyrics(artist, title, r.artistName, r.trackName));
-    const best = withSynced || results.find((r: any) => validateLyrics(artist, title, r.artistName, r.trackName));
-
-    if (!best) return false;
-
-    if (best.syncedLyrics) {
-      const { parseLrc } = await import("../state/lyrics.svelte.ts");
-      const lines = parseLrc(best.syncedLyrics);
-      if (lines.length > 0) {
-        lyricsState.syncedLines = lines;
-        lyricsState.synced = true;
-      }
-    }
-
-    if (best.plainLyrics) {
-      lyricsState.content = best.plainLyrics;
-      lyricsState.source = "LRCLIB";
-    }
-
-    return lyricsState.synced || !!lyricsState.content;
+    return handleLrcResults(results, artist, title);
   } catch {
     return false;
   }
@@ -267,32 +274,12 @@ async function tryLrclibQuery(query: string): Promise<boolean> {
     if (!res.ok) return false;
 
     const results = await res.json();
-    if (!Array.isArray(results) || results.length === 0) return false;
-
-    const withSynced = results.find((r: any) => r.syncedLyrics && (query.toLowerCase().includes(r.trackName.toLowerCase()) || r.trackName.toLowerCase().includes(query.toLowerCase())));
-    const best = withSynced || results.find((r: any) => query.toLowerCase().includes(r.trackName.toLowerCase()) || r.trackName.toLowerCase().includes(query.toLowerCase()));
-
-    if (!best) return false;
-
-    if (best.syncedLyrics) {
-      const { parseLrc } = await import("../state/lyrics.svelte.ts");
-      const lines = parseLrc(best.syncedLyrics);
-      if (lines.length > 0) {
-        lyricsState.syncedLines = lines;
-        lyricsState.synced = true;
-      }
-    }
-
-    if (best.plainLyrics) {
-      lyricsState.content = best.plainLyrics;
-      lyricsState.source = "LRCLIB";
-    }
-
-    return lyricsState.synced || !!lyricsState.content;
+    return handleLrcResults(results, "", "", query);
   } catch {
     return false;
   }
 }
+
 
 async function tryLyricsOvh(artist: string, title: string): Promise<boolean> {
   try {

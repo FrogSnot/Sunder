@@ -16,14 +16,6 @@
     }
   }
 
-  function handleScroll(e: Event) {
-    if (!lyricsState.autoScroll) return;
-    const target = e.currentTarget as HTMLDivElement;
-    // If the user's scroll position is significantly different from what we'd expect for the active line,
-    // we assume they are manual scrolling and disable autoscroll.
-    // However, a simpler heuristic for a "reliable" feel is to just disable it on any manual scroll
-    // and let them snap back with a button.
-  }
 
   // Detect manual scroll starts
   let scrollTimeout: ReturnType<typeof setTimeout>;

@@ -14,12 +14,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-latest" # for .dmg
-            args: "--target universal-apple-darwin"
-          - platform: "ubuntu-22.04" # for .deb, .rpm, .AppImage
-            args: ""
-          - platform: "windows-latest" # for .exe
-            args: ""
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"
+            bundles: "dmg"
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"
+            bundles: "dmg"
+          - platform: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+            bundles: "deb,rpm,appimage"
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc"
+            bundles: "nsis"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -33,23 +39,31 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Those targets are only used on macos-latest macos-14
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
 
       - name: install frontend dependencies
         run: npm install
+
+      - name: Sync version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          if [[ $VERSION == v* ]]; then VERSION=${VERSION#v}; fi
+          echo "Syncing version to $VERSION"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v1.2.0
-          releaseName: "Sunder v1.2.0"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Sunder ${{ github.ref_name }}"
           releaseBody: "See release_notes.md for changes."
-          args: ${{ matrix.args }}
+          args: "--target ${{ matrix.target }} --bundles ${{ matrix.bundles }}"

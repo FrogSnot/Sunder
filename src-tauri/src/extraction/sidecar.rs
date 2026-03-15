@@ -222,6 +222,7 @@ impl Extractor {
         let _ = std::fs::remove_file(&vtt_path);
 
         // Parse VTT: extract text lines, skip timestamps and metadata
+        let re_tags = regex_lite::Regex::new(r"<[^>]+>").unwrap();
         let lyrics = content
             .lines()
             .filter(|l| {
@@ -236,7 +237,6 @@ impl Extractor {
             })
             .map(|l| {
                 // Strip VTT tags like <c>, </c>, <00:01:02.345>
-                let re_tags = regex_lite::Regex::new(r"<[^>]+>").unwrap();
                 re_tags.replace_all(l.trim(), "").to_string()
             })
             .collect::<Vec<_>>();

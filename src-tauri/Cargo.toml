@@ -22,6 +22,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 regex-lite = "0.1"
 souvlaki = "0.7"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
