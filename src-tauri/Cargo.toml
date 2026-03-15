@@ -12,7 +12,7 @@ name = "sunder"
 path = "src/main.rs"
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
