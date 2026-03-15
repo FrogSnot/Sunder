@@ -48,8 +48,8 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 ### App
 - **Explore** with personalized recommendations built from your listening history
 - **Synced & Dynamic Lyrics**: Fetches synced lyrics from multiple high-quality sources (LRCLIB, Lyrics.ovh, etc.). If no synced lyrics are available, it automatically falls back to YouTube transcripts for maximum reliability
-- **User Configuration**: Highly customizable settings via a persistent configuration system. Adjust seek steps, volume increments, subtitle languages, and more to fit your workflow
-- **Visual Notifications**: Native system notifications on track changes, featuring the song title, artist name, and a high-quality cropped thumbnail for an polished, integrated experience
+- **Industrial Settings Page**: A dedicated, user-friendly interface to manage all application preferences. Syncs instantly with `config.json` to persist choices like search limits, audio quality, and default subtitle languages
+- **Visual Notifications**: Native system notifications on track changes, featuring song titles, artist names, and high-quality cropped thumbnails for a polished, integrated experience
 - **Warm animated UI** with spring physics, staggered entrances, glow pulses, and micro-interactions
 - **~15MB binary** with release optimizations (LTO, strip, single codegen unit)
 - **Zero telemetry**. Nothing leaves your machine except YouTube search queries

@@ -211,7 +211,7 @@
   .player {
     position: fixed;
     bottom: 0;
-    left: 0;
+    left: 200px;
     right: 0;
     background: var(--bg-surface);
     border-top: 1px solid var(--bg-overlay);

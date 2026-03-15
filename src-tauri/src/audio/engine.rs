@@ -18,7 +18,7 @@ use super::state::PlaybackState;
 /// Commands sent to the audio thread to control playback.
 pub enum AudioCommand {
     /// Start a new playback session for a track.
-    Play { video_id: String, duration_ms: u64 },
+    Play { video_id: String, duration_ms: u64, audio_quality: u8 },
     /// Internal: track download/prep is finished, swap the sink.
     Prepared { session_id: u64, sink: Sink, duration_ms: u64 },
     /// Internal: track preparation failed (e.g. network error).
@@ -161,7 +161,7 @@ fn audio_thread(
 
         for cmd in cmds {
             match cmd {
-                AudioCommand::Play { video_id, duration_ms: dur } => {
+                AudioCommand::Play { video_id, duration_ms: dur, audio_quality } => {
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
                     *state.write().unwrap() = PlaybackState::Loading;
@@ -177,7 +177,7 @@ fn audio_thread(
 
                     // Spawn non-blocking background preparation using Tauri's async runtime
                     tauri::async_runtime::spawn(async move {
-                        match prepare_track_async(&video_id, session_id, &current_session_clone, &app_clone, vol, eq_clone, &stream_handle_clone).await {
+                        match prepare_track_async(&video_id, session_id, &current_session_clone, &app_clone, vol, eq_clone, &stream_handle_clone, audio_quality).await {
                             Ok(new_sink) => {
                                 let _ = tx_clone.send(AudioCommand::Prepared { 
                                     session_id, 
@@ -327,6 +327,7 @@ async fn prepare_track_async(
     volume: f32,
     eq_settings: Arc<RwLock<EqSettings>>,
     stream_handle: &rodio::OutputStreamHandle,
+    audio_quality: u8,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -354,7 +355,7 @@ async fn prepare_track_async(
             url,
             "--extract-audio".into(),
             "--audio-format".into(), "mp3".into(),
-            "--audio-quality".into(), "2".into(),
+            "--audio-quality".into(), audio_quality.to_string(),
             "-o".into(), out_path_str.into(),
             "--no-playlist".into(),
             "--newline".into(),

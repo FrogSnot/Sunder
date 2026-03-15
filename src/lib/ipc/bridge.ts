@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte.ts";
 import { lyricsState } from "../state/lyrics.svelte.ts";
+import { config } from "../state/config.svelte.ts";
 
 export async function search(query: string): Promise<SearchResult> {
   return invoke<SearchResult>("search", { query });
@@ -29,6 +30,10 @@ export async function playTrack(track: Track): Promise<void> {
   }
   player.prefetchAhead(player.queueIndex);
   await invoke("play_track", { trackId: track.id });
+  
+  if (config.current.lyrics_auto_fetch) {
+    fetchLyrics(track.artist, track.title, track.id, track.duration_secs).catch(() => {});
+  }
 }
 
 let advancing = false;
@@ -132,7 +137,8 @@ export async function importYtPlaylist(url: string, playlistName: string = ""): 
 }
 
 export async function getSubtitles(videoId: string): Promise<string> {
-  return invoke<string>("get_subtitles", { videoId });
+  const lang = config.current.subtitle_lang || "en";
+  return invoke<string>("get_subtitles", { videoId, lang });
 }
 
 export async function getRecentlyPlayed(): Promise<Track[]> {

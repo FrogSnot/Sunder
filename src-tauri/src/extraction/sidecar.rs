@@ -184,7 +184,7 @@ impl Extractor {
         Ok((playlist_title, tracks))
     }
 
-    pub async fn get_subtitles(&self, video_id: &str) -> Result<String, AppError> {
+    pub async fn get_subtitles(&self, video_id: &str, lang: &str) -> Result<String, AppError> {
         let url = format!("https://www.youtube.com/watch?v={video_id}");
         let tmp = std::env::temp_dir().join("sunder_subs");
         let _ = std::fs::create_dir_all(&tmp);
@@ -195,7 +195,7 @@ impl Extractor {
                 &url,
                 "--write-subs",
                 "--write-auto-subs",
-                "--sub-langs", "en",
+                "--sub-langs", lang,
                 "--sub-format", "vtt",
                 "--skip-download",
                 "-o", out_tpl.to_str().unwrap_or_default(),
@@ -208,13 +208,13 @@ impl Extractor {
             .map_err(|e| AppError::Extraction(format!("yt-dlp subtitles failed: {e}")))?;
 
         if !status.success() {
-            return Err(AppError::Extraction("subtitle extraction failed".into()));
+            return Err(AppError::Extraction(format!("subtitle extraction ({lang}) failed", lang = lang)));
         }
 
         // Look for the subtitle file
-        let vtt_path = tmp.join(format!("{video_id}.en.vtt"));
+        let vtt_path = tmp.join(format!("{video_id}.{lang}.vtt", lang = lang));
         if !vtt_path.exists() {
-            return Err(AppError::Extraction("no English subtitles found".into()));
+            return Err(AppError::Extraction(format!("no {lang} subtitles found", lang = lang)));
         }
 
         let content = std::fs::read_to_string(&vtt_path)

@@ -16,6 +16,7 @@ use crate::models::{Playlist, SearchResult, SearchSource, Track};
 #[tauri::command]
 pub async fn search(
     query: String,
+    config: State<'_, ConfigManager>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<SearchResult, String> {
@@ -24,10 +25,12 @@ pub async fn search(
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });
     }
 
+    let limit = config.get().search_limit;
+
     // Search both YT Music and YouTube, merge results
     let (music, youtube) = tokio::join!(
-        extractor.search(&query, 5),
-        extractor.search_youtube(&query, 5)
+        extractor.search(&query, limit),
+        extractor.search_youtube(&query, limit)
     );
 
     let mut seen = HashSet::new();
@@ -60,6 +63,7 @@ pub async fn search(
 #[tauri::command]
 pub async fn play_track(
     track_id: String,
+    config: State<'_, ConfigManager>,
     audio: State<'_, AudioHandle>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
@@ -132,7 +136,12 @@ pub async fn play_track(
         });
     }
 
-    audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
+    let config = config.get();
+    audio.send(AudioCommand::Play { 
+        video_id: track_id.clone(), 
+        duration_ms,
+        audio_quality: config.audio_quality,
+    });
     let _ = db.record_listen(&track_id);
     Ok(())
 }
@@ -297,14 +306,16 @@ pub async fn import_yt_playlist(
 #[tauri::command]
 pub async fn get_subtitles(
     video_id: String,
+    lang: String,
     extractor: State<'_, Extractor>,
 ) -> Result<String, String> {
-    extractor.get_subtitles(&video_id).await.map_err(|e| e.to_string())
+    extractor.get_subtitles(&video_id, &lang).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn prefetch_track(
     track_id: String,
+    config: State<'_, ConfigManager>,
 ) -> Result<(), String> {
     let cache_dir = std::env::temp_dir().join("sunder");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -312,16 +323,19 @@ pub async fn prefetch_track(
     if expected_path.exists() {
         return Ok(());
     }
+    let conf = config.get();
     let bin = std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into());
     let url = format!("https://www.youtube.com/watch?v={track_id}");
     let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
+    let quality = conf.audio_quality.to_string();
+    
     tauri::async_runtime::spawn(async move {
         let _ = tokio::process::Command::new(&bin)
             .args([
                 &url,
                 "--extract-audio",
                 "--audio-format", "mp3",
-                "--audio-quality", "2",
+                "--audio-quality", &quality,
                 "-o", out_template.to_str().unwrap_or_default(),
                 "--no-playlist",
                 "-q",
@@ -330,7 +344,7 @@ pub async fn prefetch_track(
             .stderr(std::process::Stdio::null())
             .status()
             .await;
-        eprintln!("[sunder] prefetch done: {track_id}");
+        eprintln!("[sunder] prefetch done: {track_id} (q={quality})");
     });
     Ok(())
 }
