@@ -1,0 +1,101 @@
+pub async fn play_track(
+    track_id: String,
+    config: State<'_, ConfigManager>,
+    audio: State<'_, AudioHandle>,
+    db: State<'_, SearchCache>,
+    extractor: State<'_, Extractor>,
+) -> Result<(), String> {
+    let track_info = db.get_track_by_id(&track_id).ok().flatten();
+    
+    let duration_ms = if let Some(ref t) = track_info {
+        (t.duration_secs * 1000.0) as u64
+    } else {
+        match extractor.metadata(&track_id).await {
+            Ok(t) => {
+                let _ = db.upsert_tracks(&[t.clone()]);
+                (t.duration_secs * 1000.0) as u64
+            }
+            Err(_) => 0,
+        }
+    };
+
+    if let Some(t) = track_info {
+        audio.send(AudioCommand::UpdateMetadata {
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            thumbnail: Some(t.thumbnail.clone()),
+        });
+
+        // Trigger system notification with thumbnail
+        let app = audio.app_handle().clone();
+        let title = t.title.clone();
+        let artist = t.artist.clone();
+        let thumb_url = t.thumbnail.clone();
+        let tid = track_id.clone();
+
+        tauri::async_runtime::spawn(async move {
+            let thumb_orig = std::env::temp_dir().join(format!("{}_thumb_orig.jpg", tid));
+            let thumb_square = std::env::temp_dir().join(format!("{}_thumb.jpg", tid));
+            
+            // Download thumbnail if it doesn't exist
+            if !thumb_square.exists() {
+                if let Ok(response) = reqwest::get(&thumb_url).await {
+                    if let Ok(bytes) = response.bytes().await {
+                        let _ = std::fs::write(&thumb_orig, bytes);
+                    }
+                }
+
+                if thumb_orig.exists() {
+                    // Zoom and crop to centered square using ffmpeg
+                    // We scale to 512x512 while increasing to fill, then crop the center 512x512
+                    let _ = tokio::process::Command::new("ffmpeg")
+                        .args([
+                            "-i", thumb_orig.to_str().unwrap_or_default(),
+                            "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
+                            "-y", thumb_square.to_str().unwrap_or_default()
+                        ])
+                        .status()
+                        .await;
+                }
+            }
+
+            let mut builder = app.notification().builder()
+                .title(title)
+                .body(artist);
+            
+            if thumb_square.exists() {
+                // Use icon() which is generally more reliable for standard notification thumbnails
+                if let Some(path_str) = thumb_square.to_str() {
+                    builder = builder.icon(path_str);
+                }
+            }
+
+            let _ = builder.show();
+        });
+    }
+
+    let config = config.get();
+    audio.send(AudioCommand::Play { 
+        video_id: track_id.clone(), 
+        duration_ms,
+        audio_quality: config.audio_quality,
+    });
+    let _ = db.record_listen(&track_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pause(audio: State<'_, AudioHandle>) -> Result<(), String> {
+    audio.send(AudioCommand::Pause);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn resume(audio: State<'_, AudioHandle>) -> Result<(), String> {
+    audio.send(AudioCommand::Resume);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop(audio: State<'_, AudioHandle>) -> Result<(), String> {
+    audio.send(AudioCommand::Stop);

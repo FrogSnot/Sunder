@@ -2,57 +2,148 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use tauri::State;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
 use crate::audio::equalizer::BAND_COUNT;
+use crate::config::{AppConfig, ConfigManager};
 use crate::db::SearchCache;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
 
+/// Main search entry point. Merges results from local cache, YouTube Music, and YouTube.
 #[tauri::command]
 pub async fn search(
     query: String,
+    config: State<'_, ConfigManager>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<SearchResult, String> {
-    let local = db.search_local(&query).map_err(|e| e.to_string())?;
-    if !local.is_empty() {
+    let limit = config.get().search_limit;
+    let local = db.search_local(&query).map_err(|e: crate::error::AppError| e.to_string())?;
+    
+    // Only return local results if we have enough to satisfy the limit
+    if !local.is_empty() && local.len() >= limit {
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });
     }
 
-    let tracks = extractor.search(&query, 10).await.map_err(|e| {
-        eprintln!("Extractor error: {}", e.to_string());
-        e.to_string()
-    })?;
+    // Search both YT Music and YouTube, merge results
+    let (music, youtube) = tokio::join!(
+        extractor.search(&query, limit),
+        extractor.search_youtube(&query, limit)
+    );
+
+    let mut seen = HashSet::new();
+    let mut tracks = Vec::new();
+
+    // YT Music results first (priority)
+    if let Ok(music_tracks) = music {
+        for t in music_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
+    // Then YouTube results (fill gaps)
+    if let Ok(yt_tracks) = youtube {
+        for t in yt_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
     let _ = db.upsert_tracks(&tracks);
 
     Ok(SearchResult { tracks, source: SearchSource::Remote })
 }
 
+/// Start playback for a track ID. Resolves duration and sends a Play command to the engine.
 #[tauri::command]
 pub async fn play_track(
     track_id: String,
+    config: State<'_, ConfigManager>,
     audio: State<'_, AudioHandle>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<(), String> {
-    // Look up duration from DB by primary key (instant).
-    // Only fall back to yt-dlp metadata if the track was never seen before.
-    let duration_ms = match db.get_track_by_id(&track_id) {
-        Ok(Some(t)) => (t.duration_secs * 1000.0) as u64,
-        _ => {
-            match extractor.metadata(&track_id).await {
-                Ok(t) => {
-                    let _ = db.upsert_tracks(&[t.clone()]);
-                    (t.duration_secs * 1000.0) as u64
-                }
-                Err(_) => 0,
+    let track_info = db.get_track_by_id(&track_id).ok().flatten();
+    
+    let duration_ms = if let Some(ref t) = track_info {
+        (t.duration_secs * 1000.0) as u64
+    } else {
+        match extractor.metadata(&track_id).await {
+            Ok(t) => {
+                let _ = db.upsert_tracks(&[t.clone()]);
+                (t.duration_secs * 1000.0) as u64
             }
+            Err(_) => 0,
         }
     };
 
-    audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
+    if let Some(t) = track_info {
+        audio.send(AudioCommand::UpdateMetadata {
+            title: t.title.clone(),
+            artist: t.artist.clone(),
+            thumbnail: Some(t.thumbnail.clone()),
+        });
+
+        // Trigger system notification with thumbnail
+        let app = audio.app_handle().clone();
+        let title = t.title.clone();
+        let artist = t.artist.clone();
+        let thumb_url = t.thumbnail.clone();
+        let tid = track_id.clone();
+
+        tauri::async_runtime::spawn(async move {
+            let thumb_orig = std::env::temp_dir().join(format!("{}_thumb_orig.jpg", tid));
+            let thumb_square = std::env::temp_dir().join(format!("{}_thumb.jpg", tid));
+            
+            // Download thumbnail if it doesn't exist
+            if !thumb_square.exists() {
+                if let Ok(response) = reqwest::get(&thumb_url).await {
+                    if let Ok(bytes) = response.bytes().await {
+                        let _ = std::fs::write(&thumb_orig, bytes);
+                    }
+                }
+
+                if thumb_orig.exists() {
+                    // Zoom and crop to centered square using ffmpeg
+                    // We scale to 512x512 while increasing to fill, then crop the center 512x512
+                    let _ = tokio::process::Command::new("ffmpeg")
+                        .args([
+                            "-i", thumb_orig.to_str().unwrap_or_default(),
+                            "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
+                            "-y", thumb_square.to_str().unwrap_or_default()
+                        ])
+                        .status()
+                        .await;
+                }
+            }
+
+            let mut builder = app.notification().builder()
+                .title(title)
+                .body(artist);
+            
+            if thumb_square.exists() {
+                // Use icon() which is generally more reliable for standard notification thumbnails
+                if let Some(path_str) = thumb_square.to_str() {
+                    builder = builder.icon(path_str);
+                }
+            }
+
+            let _ = builder.show();
+        });
+    }
+
+    let config = config.get();
+    audio.send(AudioCommand::Play { 
+        video_id: track_id.clone(), 
+        duration_ms,
+        audio_quality: config.audio_quality,
+    });
     let _ = db.record_listen(&track_id);
     Ok(())
 }
@@ -181,8 +272,52 @@ pub async fn reorder_playlist_tracks(playlist_id: i64, track_ids: Vec<String>, d
 }
 
 #[tauri::command]
+pub async fn import_yt_playlist(
+    url: String,
+    playlist_name: String,
+    db: State<'_, SearchCache>,
+    extractor: State<'_, Extractor>,
+) -> Result<Playlist, String> {
+    let (extracted_name, tracks) = extractor.extract_playlist(&url).await.map_err(|e| e.to_string())?;
+    if tracks.is_empty() {
+        return Err("No tracks found in playlist".into());
+    }
+
+    // Use extracted name if client didn't provide one
+    let name = if playlist_name.trim().is_empty() {
+        extracted_name
+    } else {
+        playlist_name
+    };
+
+    let _ = db.upsert_tracks(&tracks);
+    let playlist = db.create_playlist(&name).map_err(|e| e.to_string())?;
+
+    for track in &tracks {
+        let _ = db.add_to_playlist(playlist.id, &track.id);
+    }
+
+    Ok(Playlist {
+        id: playlist.id,
+        name,
+        track_count: tracks.len() as i64,
+    })
+}
+
+/// Fetch track subtitles from YouTube if synced lyrics aren't found in other sources.
+#[tauri::command]
+pub async fn get_subtitles(
+    video_id: String,
+    lang: String,
+    extractor: State<'_, Extractor>,
+) -> Result<String, String> {
+    extractor.get_subtitles(&video_id, &lang).await.map_err(|e: crate::error::AppError| e.to_string())
+}
+
+#[tauri::command]
 pub async fn prefetch_track(
     track_id: String,
+    config: State<'_, ConfigManager>,
 ) -> Result<(), String> {
     let cache_dir = std::env::temp_dir().join("sunder");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -190,16 +325,19 @@ pub async fn prefetch_track(
     if expected_path.exists() {
         return Ok(());
     }
+    let conf = config.get();
     let bin = std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into());
     let url = format!("https://www.youtube.com/watch?v={track_id}");
     let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
-    tokio::spawn(async move {
+    let quality = conf.audio_quality.to_string();
+    
+    tauri::async_runtime::spawn(async move {
         let _ = tokio::process::Command::new(&bin)
             .args([
                 &url,
                 "--extract-audio",
                 "--audio-format", "mp3",
-                "--audio-quality", "2",
+                "--audio-quality", &quality,
                 "-o", out_template.to_str().unwrap_or_default(),
                 "--no-playlist",
                 "-q",
@@ -208,7 +346,7 @@ pub async fn prefetch_track(
             .stderr(std::process::Stdio::null())
             .status()
             .await;
-        eprintln!("[sunder] prefetch done: {track_id}");
+        eprintln!("[sunder] prefetch done: {track_id} (q={quality})");
     });
     Ok(())
 }
@@ -359,4 +497,17 @@ fn chrono_minute() -> usize {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     (secs / 60) as usize
+}
+
+/// Retrieve the current application configuration.
+#[tauri::command]
+pub async fn get_config(config: State<'_, ConfigManager>) -> Result<AppConfig, String> {
+    Ok(config.get())
+}
+
+/// Persist a new application configuration.
+#[tauri::command]
+pub async fn set_config(new_config: AppConfig, config: State<'_, ConfigManager>) -> Result<(), String> {
+    config.update(new_config);
+    Ok(())
 }

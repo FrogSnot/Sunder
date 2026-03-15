@@ -1,22 +1,40 @@
-use std::io::{self, BufRead, Read};
-use std::process::{Command, Stdio};
+use std::io;
+use tokio::io::AsyncBufReadExt;
+use tokio::process::Command;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rodio::{Decoder, OutputStream, Sink, Source};
+use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig,
+};
 use tauri::Emitter;
 
 use super::equalizer::{EqSettings, EqSource};
 use super::state::PlaybackState;
 
+/// Commands sent to the audio thread to control playback.
 pub enum AudioCommand {
-    Play { video_id: String, duration_ms: u64 },
+    /// Start a new playback session for a track.
+    Play { video_id: String, duration_ms: u64, audio_quality: u8 },
+    /// Internal: track download/prep is finished, swap the sink.
+    Prepared { session_id: u64, sink: Sink, duration_ms: u64 },
+    /// Internal: track preparation failed (e.g. network error).
+    LoadFailed { session_id: u64, error: String },
+    /// Pause current playback.
     Pause,
+    /// Resume paused playback.
     Resume,
+    /// Stop playback and clear the sink.
     Stop,
+    /// Set volume immediately.
     SetVolume(f32),
+    /// Seek to a time in seconds.
     Seek(f64),
+    /// Update media metadata for system controls.
+    UpdateMetadata { title: String, artist: String, thumbnail: Option<String> },
 }
 
 pub struct AudioHandle {
@@ -26,6 +44,8 @@ pub struct AudioHandle {
     pub duration_ms: Arc<AtomicU64>,
     pub volume: Arc<RwLock<f32>>,
     pub eq_settings: Arc<RwLock<EqSettings>>,
+    pub current_session: Arc<AtomicU64>,
+    app: tauri::AppHandle,
 }
 
 impl AudioHandle {
@@ -36,20 +56,23 @@ impl AudioHandle {
         let duration_ms = Arc::new(AtomicU64::new(0));
         let volume = Arc::new(RwLock::new(0.8_f32));
         let eq_settings = Arc::new(RwLock::new(EqSettings::default()));
+        let current_session = Arc::new(AtomicU64::new(0));
 
         let handle = Self {
-            tx,
+            tx: tx.clone(),
             state: state.clone(),
             position_ms: position_ms.clone(),
             duration_ms: duration_ms.clone(),
             volume: volume.clone(),
             eq_settings: eq_settings.clone(),
+            current_session: current_session.clone(),
+            app: app.clone(),
         };
 
         std::thread::Builder::new()
             .name("sunder-audio".into())
             .spawn(move || {
-                audio_thread(rx, state, position_ms, duration_ms, volume, eq_settings, app);
+                audio_thread(tx, rx, state, position_ms, duration_ms, volume, eq_settings, current_session, app);
             })
             .expect("failed to spawn audio thread");
 
@@ -57,7 +80,14 @@ impl AudioHandle {
     }
 
     pub fn send(&self, cmd: AudioCommand) {
+        if matches!(cmd, AudioCommand::Play { .. }) {
+            self.current_session.fetch_add(1, Ordering::SeqCst);
+        }
         let _ = self.tx.send(cmd);
+    }
+
+    pub fn app_handle(&self) -> &tauri::AppHandle {
+        &self.app
     }
 }
 
@@ -65,13 +95,17 @@ fn ytdlp_bin() -> String {
     std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into())
 }
 
+/// The background audio thread that handles rodio Sink management.
+/// Uses a session ID to ensure late-arriving downloads don't overwrite current playback.
 fn audio_thread(
+    tx_for_thread: std::sync::mpsc::Sender<AudioCommand>,
     rx: std::sync::mpsc::Receiver<AudioCommand>,
     state: Arc<RwLock<PlaybackState>>,
     position_ms: Arc<AtomicU64>,
     duration_ms: Arc<AtomicU64>,
     volume: Arc<RwLock<f32>>,
     eq_settings: Arc<RwLock<EqSettings>>,
+    current_session: Arc<AtomicU64>,
     app: tauri::AppHandle,
 ) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
@@ -81,9 +115,34 @@ fn audio_thread(
             return;
         }
     };
-    eprintln!("[sunder] audio thread started, output device ready");
-
     let mut sink: Option<Sink> = None;
+
+    let mut controls = MediaControls::new(PlatformConfig {
+        dbus_name: "sunder",
+        display_name: "Sunder",
+        hwnd: None,
+    }).ok();
+
+    if let Some(ref mut c) = controls {
+        let app_handle = app.clone();
+        let _ = c.attach(move |event| {
+            match event {
+                MediaControlEvent::Play | MediaControlEvent::Pause | MediaControlEvent::Toggle => {
+                    let _ = app_handle.emit("media-toggle", ());
+                }
+                MediaControlEvent::Next => {
+                    let _ = app_handle.emit("media-next", ());
+                }
+                MediaControlEvent::Previous => {
+                    let _ = app_handle.emit("media-previous", ());
+                }
+                MediaControlEvent::Stop => {
+                    let _ = app_handle.emit("media-stop", ());
+                }
+                _ => {}
+            }
+        });
+    }
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(50));
@@ -102,46 +161,80 @@ fn audio_thread(
 
         for cmd in cmds {
             match cmd {
-                AudioCommand::Play { video_id, duration_ms: dur } => {
-                    if let Some(s) = sink.take() {
-                        s.stop();
-                    }
-
-                    *state.write().unwrap() = PlaybackState::Loading;
+                AudioCommand::Play { video_id, duration_ms: dur, audio_quality } => {
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
+                    *state.write().unwrap() = PlaybackState::Loading;
                     emit_state(&app, &state, &position_ms, &duration_ms);
 
-                    eprintln!("[sunder] starting playback for: {video_id}");
+                    let session_id = current_session.load(Ordering::SeqCst);
+                    let app_clone = app.clone();
+                    let current_session_clone = current_session.clone();
+                    let stream_handle_clone = stream_handle.clone();
                     let vol = *volume.read().unwrap();
+                    let eq_clone = eq_settings.clone();
+                    let tx_clone = tx_for_thread.clone(); 
 
-                    let t0 = std::time::Instant::now();
-                    match start_streaming(&video_id, &state, &stream_handle, vol, &eq_settings, &app) {
-                        Ok(new_sink) => {
-                            eprintln!("[sunder] playback started ({:.1?})", t0.elapsed());
-                            sink = Some(new_sink);
-                            *state.write().unwrap() = PlaybackState::Playing;
+                    // Spawn non-blocking background preparation using Tauri's async runtime
+                    tauri::async_runtime::spawn(async move {
+                        match prepare_track_async(&video_id, session_id, &current_session_clone, &app_clone, vol, eq_clone, &stream_handle_clone, audio_quality).await {
+                            Ok(new_sink) => {
+                                let _ = tx_clone.send(AudioCommand::Prepared { 
+                                    session_id, 
+                                    sink: new_sink, 
+                                    duration_ms: dur 
+                                });
+                            }
+                            Err(e) => {
+                                if !e.to_string().contains("Session cancelled") {
+                                    let _ = tx_clone.send(AudioCommand::LoadFailed { 
+                                        session_id, 
+                                        error: e.to_string() 
+                                    });
+                                }
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("[sunder] playback error: {e}");
-                            let _ = app.emit("playback-error", serde_json::json!({
-                                "video_id": video_id,
-                                "error": e.to_string(),
-                            }));
-                            *state.write().unwrap() = PlaybackState::Idle;
+                    });
+                }
+                AudioCommand::Prepared { session_id, sink: new_sink, duration_ms: dur } => {
+                    if session_id == current_session.load(Ordering::SeqCst) {
+                        if let Some(s) = sink.take() {
+                            s.stop();
                         }
+                        duration_ms.store(dur, Ordering::Release);
+                        position_ms.store(0, Ordering::Release);
+                        sink = Some(new_sink);
+                        *state.write().unwrap() = PlaybackState::Playing;
+                        if let Some(ref mut c) = controls {
+                            let _ = c.set_playback(MediaPlayback::Playing { progress: None });
+                        }
+                        emit_state(&app, &state, &position_ms, &duration_ms);
+                    }
+                }
+                AudioCommand::LoadFailed { session_id, error } => {
+                    if session_id == current_session.load(Ordering::SeqCst) {
+                        eprintln!("[sunder] load failed: {error}");
+                        let _ = app.emit("playback-error", serde_json::json!({ "error": error }));
+                        *state.write().unwrap() = PlaybackState::Idle;
+                        emit_state(&app, &state, &position_ms, &duration_ms);
                     }
                 }
                 AudioCommand::Pause => {
                     if let Some(ref s) = sink {
                         s.pause();
                         *state.write().unwrap() = PlaybackState::Paused;
+                        if let Some(ref mut c) = controls {
+                            let _ = c.set_playback(MediaPlayback::Paused { progress: None });
+                        }
                     }
                 }
                 AudioCommand::Resume => {
                     if let Some(ref s) = sink {
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
+                        if let Some(ref mut c) = controls {
+                            let _ = c.set_playback(MediaPlayback::Playing { progress: None });
+                        }
                     }
                 }
                 AudioCommand::Stop => {
@@ -150,6 +243,9 @@ fn audio_thread(
                     }
                     *state.write().unwrap() = PlaybackState::Stopped;
                     position_ms.store(0, Ordering::Release);
+                    if let Some(ref mut c) = controls {
+                        let _ = c.set_playback(MediaPlayback::Stopped);
+                    }
                 }
                 AudioCommand::SetVolume(v) => {
                     *volume.write().unwrap() = v;
@@ -160,11 +256,27 @@ fn audio_thread(
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
                         let d = Duration::from_secs_f64(secs.max(0.0));
+                        let vol = *volume.read().unwrap();
+                        s.set_volume(0.0);
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
+                            s.set_volume(vol);
                         } else {
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                            std::thread::sleep(Duration::from_millis(50));
+                            s.set_volume(vol);
                         }
+                    }
+                }
+                AudioCommand::UpdateMetadata { title, artist, thumbnail } => {
+                    if let Some(ref mut c) = controls {
+                        let _ = c.set_metadata(MediaMetadata {
+                            title: Some(&title),
+                            artist: Some(&artist),
+                            album: None,
+                            cover_url: thumbnail.as_deref(),
+                            duration: Some(std::time::Duration::from_millis(duration_ms.load(std::sync::atomic::Ordering::Relaxed))),
+                        });
                     }
                 }
             }
@@ -206,16 +318,16 @@ fn audio_thread(
     }
 }
 
-/// Download audio via yt-dlp to a temp MP3 file, then decode with rodio.
-/// symphonia 0.5 cannot decode YouTube's M4A containers (SeekError on init),
-/// so we let yt-dlp + ffmpeg convert to MP3 which symphonia handles perfectly.
-fn start_streaming(
+/// Download audio via yt-dlp to a temp MP3 file in a non-blocking background task.
+async fn prepare_track_async(
     video_id: &str,
-    state: &Arc<RwLock<PlaybackState>>,
-    stream_handle: &rodio::OutputStreamHandle,
-    volume: f32,
-    eq_settings: &Arc<RwLock<EqSettings>>,
+    session_id: u64,
+    current_session: &Arc<AtomicU64>,
     app: &tauri::AppHandle,
+    volume: f32,
+    eq_settings: Arc<RwLock<EqSettings>>,
+    stream_handle: &rodio::OutputStreamHandle,
+    audio_quality: u8,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -224,115 +336,67 @@ fn start_streaming(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| crate::error::AppError::Io(e))?;
 
-    let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
 
-    *state.write().unwrap() = PlaybackState::Buffering;
-
     if !expected_path.exists() {
+        // Quick session check before starting slow process
+        if current_session.load(Ordering::SeqCst) != session_id {
+            return Err(crate::error::AppError::Extraction("Session cancelled".into()));
+        }
+
         let _ = app.emit("download-progress", serde_json::json!({
             "percent": 0.0, "stage": "preparing"
         }));
 
+        let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
         let out_path_str = out_template.to_str().unwrap_or_default();
-        let base_args: Vec<&str> = vec![
-            url.as_str(),
-            "--extract-audio",
-            "--audio-format", "mp3",
-            "--audio-quality", "2",
-            "-o", out_path_str,
-            "--no-playlist",
-            "--newline",
-            "--concurrent-fragments", "4",
+        
+        let args: Vec<String> = vec![
+            url,
+            "--extract-audio".into(),
+            "--audio-format".into(), "mp3".into(),
+            "--audio-quality".into(), audio_quality.to_string(),
+            "-o".into(), out_path_str.into(),
+            "--no-playlist".into(),
+            "--newline".into(),
+            "--concurrent-fragments".into(), "4".into(),
         ];
-        let fallback_args: &[&str] = &["--force-ipv4", "--geo-bypass", "--extractor-retries", "3"];
-        let mut last_error = String::new();
 
-        for attempt in 0..2u8 {
-            if attempt > 0 {
-                eprintln!("[sunder] retrying download (attempt {})", attempt + 1);
-                for ext in ["mp3", "webm", "m4a", "opus", "part", "webm.part", "m4a.part"] {
-                    let _ = std::fs::remove_file(cache_dir.join(format!("{video_id}.{ext}")));
+        let mut child = Command::new(&bin)
+            .args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}")))?;
+
+        if let Some(stdout) = child.stdout.take() {
+            let mut reader = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                // Periodically check if session is still valid
+                if current_session.load(Ordering::SeqCst) != session_id {
+                    let _ = child.kill().await;
+                    return Err(crate::error::AppError::Extraction("Session cancelled".into()));
+                }
+
+                if let Some(pct) = parse_download_pct(&line) {
+                    let _ = app.emit("download-progress", serde_json::json!({
+                        "percent": pct, "stage": "downloading"
+                    }));
                 }
             }
-
-            let mut args = base_args.clone();
-            if attempt > 0 {
-                args.extend_from_slice(fallback_args);
-            }
-
-            let mut child = match Command::new(&bin)
-                .args(&args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => return Err(crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}"))),
-            };
-
-            if let Some(stdout) = child.stdout.take() {
-                for line in io::BufReader::new(stdout).lines().flatten() {
-                    if let Some(pct) = parse_download_pct(&line) {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": pct, "stage": "downloading"
-                        }));
-                    } else if line.contains("[ExtractAudio]") {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": 100.0, "stage": "converting"
-                        }));
-                    } else if line.contains("[youtube]") || line.contains("[info]") {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": 0.0, "stage": "extracting"
-                        }));
-                    }
-                }
-            }
-
-            let status = match child.wait() {
-                Ok(s) => s,
-                Err(e) => return Err(crate::error::AppError::Extraction(format!("yt-dlp wait: {e}"))),
-            };
-
-            if status.success() && expected_path.exists() {
-                last_error.clear();
-                break;
-            }
-
-            let stderr_out = child.stderr.take()
-                .map(|mut s| {
-                    let mut buf = String::new();
-                    let _ = s.read_to_string(&mut buf);
-                    buf
-                })
-                .unwrap_or_default();
-
-            last_error = if !stderr_out.is_empty() {
-                let trimmed = stderr_out.trim();
-                eprintln!("[sunder] yt-dlp stderr (attempt {}): {}", attempt + 1, trimmed);
-                format!("yt-dlp failed ({}): {}", status, trimmed.lines().last().unwrap_or(trimmed))
-            } else {
-                format!("yt-dlp failed ({})", status)
-            };
         }
 
-        if !last_error.is_empty() {
-            return Err(crate::error::AppError::Extraction(last_error));
-        }
-
-        if !expected_path.exists() {
-            return Err(crate::error::AppError::Extraction(
-                format!("yt-dlp produced no output at {}", expected_path.display()),
-            ));
-        }
-    } else {
-        eprintln!("[sunder] cache hit: {}", expected_path.display());
+        let _ = child.wait().await;
     }
 
-    let file_len = std::fs::metadata(&expected_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
-    eprintln!("[sunder] audio ready: {} bytes at {}", file_len, expected_path.display());
+    if !expected_path.exists() {
+        return Err(crate::error::AppError::Extraction("yt-dlp produced no output".into()));
+    }
+
+    // Final session check before creating the sink
+    if current_session.load(Ordering::SeqCst) != session_id {
+        return Err(crate::error::AppError::Extraction("Session cancelled".into()));
+    }
 
     let file = std::fs::File::open(&expected_path)
         .map_err(|e| crate::error::AppError::Io(e))?;
@@ -342,7 +406,7 @@ fn start_streaming(
     let sink = Sink::try_new(stream_handle)
         .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
-    sink.append(EqSource::new(decoder.convert_samples(), eq_settings.clone()));
+    sink.append(EqSource::new(decoder.convert_samples(), eq_settings));
 
     Ok(sink)
 }
