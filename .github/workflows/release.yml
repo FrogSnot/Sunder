@@ -13,7 +13,7 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage
+            bundles: deb,appimage,rpm
           - platform: macos-latest
             target: aarch64-apple-darwin
             bundles: dmg
@@ -54,7 +54,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libasound2-dev \
-            libfuse2
+            libfuse2 \
+            rpm
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -87,6 +88,13 @@ jobs:
         with:
           name: sunder-linux-deb
           path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+
+      - name: Upload .rpm
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunder-linux-rpm
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
 
       - name: Upload .AppImage
         if: runner.os == 'Linux'
@@ -137,6 +145,7 @@ jobs:
         with:
           files: |
             artifacts/**/*.deb
+            artifacts/**/*.rpm
             artifacts/**/*.AppImage
             artifacts/**/*.dmg
             artifacts/**/*.app
