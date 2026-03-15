@@ -28,29 +28,29 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **Dual-Source Search**: Automatically merges results from YouTube Music (for official releases) and regular YouTube (for remixes and covers) into a single, cohesive view
 - **Native audio** via rodio, talking directly to ALSA/PipeWire/Pulse with no Web Audio overhead
 - **Seamless Seeking**: Mutes the audio stream during seek operations to eliminate pops and glitches, providing a smooth navigation experience
-- **Smart error recovery** if a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
-- **Retry with bypass** yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
+- **Smart Error Recovery**: If a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
+- **Retry with Bypass**: yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
 - **Non-Blocking Preparation**: Session-based audio preparation, allowing you to skip tracks rapidly without blocking the audio thread or getting stuck in a "Preparing" state
 - **Prefetching**: Silently pre-downloads upcoming tracks for seamless transitions
 - **Media Key Support**: Fully integrated with system media controls (MPRIS on Linux). Control playback using your keyboard's hardware multimedia keys (Play/Pause, Next, Previous)
 
 ### Queue
 - **Three-section view**: Now Playing card, Next Up (with drag-to-reorder), Previously Played
-- **Fluid animations** track cards slide and flip into position when the song changes, when you drag-reorder, or when tracks enter/leave the queue
-- **Context menu integration** right-click any track to play next, add/remove from queue, add to or remove from a playlist
-- **Auto-advance**: queue advances automatically on track end; stops gracefully after 3 consecutive errors
+- **Fluid Animations**: Track cards slide and flip into position when the song changes, when you drag-reorder, or when tracks enter/leave the queue
+- **Context Menu Integration**: Right-click any track to play next, add/remove from queue, add to or remove from a playlist
+- **Auto-Advance**: Queue advances automatically on track end; stops gracefully after 3 consecutive errors
 
 ### Playlists
 - **Full CRUD** with inline rename, quick-play, and drag-to-reorder
 - **YouTube Music Import**: Effortlessly import entire YT Music playlists via URL. Sunder automatically detects the playlist name and fetches all tracks for your local collection
-- **Remove from context menu** right-click any track to remove it from the current playlist
+- **Remove from Context Menu**: Right-click any track to remove it from the current playlist
 
 ### App
 - **Explore** with personalized recommendations built from your listening history
 - **Synced & Dynamic Lyrics**: Fetches synced lyrics from multiple high-quality sources (LRCLIB, Lyrics.ovh, etc.). If no synced lyrics are available, it automatically falls back to YouTube transcripts for maximum reliability
-- **Industrial Settings Page**: A dedicated, user-friendly interface to manage all application preferences. Syncs instantly with `config.json` to persist choices like search limits, audio quality, and default subtitle languages
-- **Visual Notifications**: Native system notifications on track changes, featuring song titles, artist names, and high-quality cropped thumbnails for a polished, integrated experience
-- **Warm animated UI** with spring physics, staggered entrances, glow pulses, and micro-interactions
+- **Settings Page**: A dedicated, user-friendly interface to manage all application preferences. Syncs instantly with `config.json` to persist choices like search limits, audio quality and default subtitle languages
+- **Visual Notifications**: Native system notifications on track changes, featuring song titles, artist names and high-quality cropped thumbnails for a polished, integrated experience
+- **Warm animated UI** with spring physics, staggered entrances, glow pulses and micro-interactions
 - **~15MB binary** with release optimizations (LTO, strip, single codegen unit)
 - **Zero telemetry**. Nothing leaves your machine except YouTube search queries
 
