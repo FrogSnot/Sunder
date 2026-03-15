@@ -225,7 +225,7 @@ async function tryLrclib(artist: string, title: string, durationSecs?: number): 
     }
 
     const res = await fetch(`https://lrclib.net/api/search?${params.toString()}`, {
-      headers: { "User-Agent": "Sunder v1.2.0 (https://github.com/grassified/Sunder)" },
+      headers: { "User-Agent": "Sunder v1.2.0 (https://github.com/FrogSnot/Sunder)" },
     });
 
     if (!res.ok) return false;
@@ -262,7 +262,7 @@ async function tryLrclibQuery(query: string): Promise<boolean> {
   try {
     const params = new URLSearchParams({ q: query });
     const res = await fetch(`https://lrclib.net/api/search?${params.toString()}`, {
-      headers: { "User-Agent": "Sunder v1.2.0 (https://github.com/grassified/Sunder)" },
+      headers: { "User-Agent": "Sunder v1.2.0 (https://github.com/FrogSnot/Sunder)" },
     });
     if (!res.ok) return false;
 

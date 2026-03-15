@@ -15,8 +15,6 @@
 
 ---
 
-> [!NOTE]
-> This is a fork of the [FrogSnot/Sunder](https://github.com/FrogSnot/Sunder) repository. All credits to the original creators for the amazing foundation. This version (v1.2) includes accessibility fixes, branding updates, and expanded distribution support.
 
 ## What is Sunder?
 
@@ -36,6 +34,8 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **Non-Blocking Preparation**: Session-based audio preparation, allowing you to skip tracks rapidly without blocking the audio thread or getting stuck in a "Preparing" state
 - **Prefetching**: Silently pre-downloads upcoming tracks for seamless transitions
 - **Media Key Support**: Fully integrated with system media controls (MPRIS on Linux). Control playback using your keyboard's hardware multimedia keys (Play/Pause, Next, Previous)
+- **System Tray**: Universal system tray icon with playback controls and window management, supporting quick access across all platforms
+- **System Tray**: Universal system tray icon with playback controls and window management, supporting quick access across all platforms
 
 ### Queue
 - **Three-section view**: Now Playing card, Next Up (with drag-to-reorder), Previously Played
@@ -200,7 +200,7 @@ Audio is cached temporarily in `/tmp/sunder/` and automatically reused on replay
 - [ ] Local track downloads with library management
 - [X] Lyrics display
 - [X] Keyboard shortcuts / media key support
-- [ ] System tray with mini player
+- [X] System tray with mini player
 - [X] Audio equalizer
 
 ## License
