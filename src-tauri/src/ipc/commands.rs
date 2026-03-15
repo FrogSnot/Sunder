@@ -104,12 +104,12 @@ pub async fn play_track(
                     .await;
 
                 if thumb_orig.exists() {
-                    // Crop to square using ffmpeg
-                    // We use "min(iw,ih)" to handle any orientation and ensure a centered square crop
+                    // Zoom and crop to centered square using ffmpeg
+                    // We scale to 512x512 while increasing to fill, then crop the center 512x512
                     let _ = tokio::process::Command::new("ffmpeg")
                         .args([
                             "-i", thumb_orig.to_str().unwrap_or_default(),
-                            "-vf", "crop=min(iw\\,ih):min(iw\\,ih)",
+                            "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
                             "-y", thumb_square.to_str().unwrap_or_default()
                         ])
                         .status()
