@@ -1,6 +1,6 @@
 {
   "productName": "Sunder",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "identifier": "com.sunder.app",
   "build": {
     "devUrl": "http://localhost:5173",

@@ -126,7 +126,7 @@
         {:else if lyricsState.synced && lyricsState.syncedLines.length > 0}
           <div class="synced-lyrics">
             {#each lyricsState.syncedLines as line, i}
-              <p
+              <button
                 id="lrc-line-{i}"
                 class="lrc-line"
                 class:active={i === activeLine}
@@ -137,8 +137,6 @@
                     import("../ipc/bridge").then(m => m.seek(line.time));
                   }
                 }}
-                role="button"
-                tabindex="0"
                 onkeydown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     if (line.time >= 0) {
@@ -149,7 +147,7 @@
                 }}
               >
                 {line.text}
-              </p>
+              </button>
             {/each}
           </div>
         {:else if lyricsState.content}
@@ -315,6 +313,11 @@
     padding: 4px 12px;
     border-radius: var(--radius-sm);
     opacity: 0.4;
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+    display: block;
   }
 
   .lrc-line.past {

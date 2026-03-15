@@ -15,6 +15,9 @@
 
 ---
 
+> [!NOTE]
+> This is a fork of the [FrogSnot/Sunder](https://github.com/FrogSnot/Sunder) repository. All credits to the original creators for the amazing foundation. This version (v1.2) includes accessibility fixes, branding updates, and expanded distribution support.
+
 ## What is Sunder?
 
 Sunder is a lightweight, native desktop music player that streams from YouTube without the bloat. Built with Tauri v2 and Rust, it uses a fraction of the memory that Electron-based alternatives consume while delivering a buttery smooth UI with hand-crafted animations.
@@ -72,6 +75,14 @@ Download the `.deb` from [Releases](https://github.com/FrogSnot/Sunder/releases)
 
 ```bash
 sudo dpkg -i sunder_*_amd64.deb
+```
+
+### Fedora/RedHat
+
+Download the `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases):
+
+```bash
+sudo dnf install ./Sunder-*.x86_64.rpm
 ```
 
 ### Other Linux
