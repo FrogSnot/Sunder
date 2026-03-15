@@ -7,22 +7,55 @@
     lyricsState.visible = false;
   }
 
+  function snapToCurrent() {
+    lyricsState.autoScroll = true;
+    const activeIdx = activeLine;
+    if (activeIdx >= 0) {
+      const el = document.getElementById(`lrc-line-${activeIdx}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  function handleScroll(e: Event) {
+    if (!lyricsState.autoScroll) return;
+    const target = e.currentTarget as HTMLDivElement;
+    // If the user's scroll position is significantly different from what we'd expect for the active line,
+    // we assume they are manual scrolling and disable autoscroll.
+    // However, a simpler heuristic for a "reliable" feel is to just disable it on any manual scroll
+    // and let them snap back with a button.
+  }
+
+  // Detect manual scroll starts
+  let scrollTimeout: ReturnType<typeof setTimeout>;
+  function onManualScroll() {
+    if (lyricsState.autoScroll && lyricsState.visible) {
+      lyricsState.autoScroll = false;
+    }
+  }
+
   let activeLine = $derived.by(() => {
     if (!lyricsState.synced || lyricsState.syncedLines.length === 0) return -1;
     const t = player.currentTime;
+    
+    // Binary search for efficiency since lines are sorted
+    let low = 0;
+    let high = lyricsState.syncedLines.length - 1;
     let idx = -1;
-    for (let i = 0; i < lyricsState.syncedLines.length; i++) {
-      if (lyricsState.syncedLines[i].time <= t) {
-        idx = i;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (lyricsState.syncedLines[mid].time <= t) {
+        idx = mid;
+        low = mid + 1;
       } else {
-        break;
+        high = mid - 1;
       }
     }
     return idx;
   });
 
   $effect(() => {
-    if (activeLine >= 0 && lyricsState.visible) {
+    if (activeLine >= 0 && lyricsState.visible && lyricsState.autoScroll) {
       const el = document.getElementById(`lrc-line-${activeLine}`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
@@ -72,11 +105,19 @@
         </div>
       </div>
 
-      <div class="lyrics-body">
+      <div 
+        class="lyrics-body" 
+        onwheel={onManualScroll} 
+        ontouchmove={onManualScroll}
+        role="region"
+        aria-label="Lyrics content"
+      >
         {#if lyricsState.loading}
           <div class="status">
-            <div class="loader"></div>
-            <p>Fetching lyrics...</p>
+            <div class="status-content">
+              <div class="loader"></div>
+              <p>Fetching lyrics...</p>
+            </div>
           </div>
         {:else if lyricsState.error}
           <div class="status error">
@@ -90,6 +131,22 @@
                 class="lrc-line"
                 class:active={i === activeLine}
                 class:past={i < activeLine}
+                onclick={() => {
+                  if (line.time >= 0) {
+                    player.currentTime = line.time;
+                    import("../ipc/bridge").then(m => m.seek(line.time));
+                  }
+                }}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    if (line.time >= 0) {
+                      player.currentTime = line.time;
+                      import("../ipc/bridge").then(m => m.seek(line.time));
+                    }
+                  }
+                }}
               >
                 {line.text}
               </p>
@@ -103,6 +160,19 @@
           </div>
         {/if}
       </div>
+
+      {#if !lyricsState.autoScroll && lyricsState.synced && lyricsState.syncedLines.length > 0}
+        <button 
+          class="snap-btn" 
+          onclick={snapToCurrent}
+          transition:fade={{ duration: 150 }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12l7 7 7-7" />
+          </svg>
+          Back to current
+        </button>
+      {/if}
     </div>
   </div>
 {/if}
@@ -273,6 +343,42 @@
 
   .status.error {
     color: #ef4444;
+  }
+
+  .status-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .snap-btn {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: black;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    transition: transform 200ms var(--ease-spring), background 200ms ease;
+    z-index: 10;
+  }
+
+  .snap-btn:hover {
+    transform: translateX(-50%) scale(1.05);
+    background: #f0b830;
+  }
+
+  .snap-btn svg {
+    width: 18px;
+    height: 18px;
   }
 
   .loader {
