@@ -104,19 +104,8 @@ pub async fn play_track(
                     .await;
 
                 if thumb_orig.exists() {
-                    // Crop to square using ffmpeg (detect shortest side)
-                    let _ = tokio::process::Command::new("ffmpeg")
-                        .args([
-                            "-i", thumb_orig.to_str().unwrap_or_else(|| ""),
-                            "-vf", "crop=ih:ih", // This assumes landscape, which most YT thumbs are. Better: min(iw,ih)
-                            "-y",
-                            thumb_square.to_str().unwrap_or_else(|| "")
-                        ])
-                        .status()
-                        .await;
-                    
-                    // Specific crop for YouTube 16:9 to square:
-                    // "crop=ih:ih" works well for thumbnails because they are wider than they are tall.
+                    // Crop to square using ffmpeg
+                    // We use "min(iw,ih)" to handle any orientation and ensure a centered square crop
                     let _ = tokio::process::Command::new("ffmpeg")
                         .args([
                             "-i", thumb_orig.to_str().unwrap_or_default(),
@@ -133,7 +122,10 @@ pub async fn play_track(
                 .body(artist);
             
             if thumb_square.exists() {
-                builder = builder.large_icon(thumb_square.to_str().unwrap_or_default());
+                // Use icon() which is generally more reliable for standard notification thumbnails
+                if let Some(path_str) = thumb_square.to_str() {
+                    builder = builder.icon(path_str);
+                }
             }
 
             let _ = builder.show();

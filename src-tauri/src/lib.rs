@@ -62,9 +62,14 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::ScaleFactorChanged { .. } = event {
-                // Force a layout recalculation or simply trigger a tiny resize to "wake up" the renderer
-                let size = window.outer_size().unwrap_or_default();
-                let _ = window.set_size(size);
+                // Force a layout recalculation. A tiny resize often helps "snap" the webview.
+                let window_clone = window.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if let Ok(size) = window_clone.outer_size() {
+                        let _ = window_clone.set_size(size);
+                    }
+                });
             }
         })
         .run(tauri::generate_context!())

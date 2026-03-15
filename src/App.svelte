@@ -148,12 +148,14 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
     height: 100%;
     overflow: hidden;
   }
 
   .content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 24px 24px 120px;
   }
