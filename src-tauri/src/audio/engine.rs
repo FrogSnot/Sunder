@@ -160,10 +160,15 @@ fn audio_thread(
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
                         let d = Duration::from_secs_f64(secs.max(0.0));
+                        let vol = *volume.read().unwrap();
+                        s.set_volume(0.0);
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
+                            s.set_volume(vol);
                         } else {
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                            std::thread::sleep(Duration::from_millis(50));
+                            s.set_volume(vol);
                         }
                     }
                 }
