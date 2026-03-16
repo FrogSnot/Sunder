@@ -16,15 +16,39 @@ pub async fn search(
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<SearchResult, String> {
+    let limit = 10;
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
     if !local.is_empty() {
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });
     }
 
-    let tracks = extractor.search(&query, 10).await.map_err(|e| {
-        eprintln!("Extractor error: {}", e.to_string());
-        e.to_string()
-    })?;
+    // Search both YT Music and YouTube, merge results
+    let (music, youtube) = tokio::join!(
+        extractor.search(&query, limit),
+        extractor.search_youtube(&query, limit)
+    );
+
+    let mut seen = HashSet::new();
+    let mut tracks = Vec::new();
+
+    // YT Music results first (priority)
+    if let Ok(music_tracks) = music {
+        for t in music_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
+    // Then YouTube results (fill gaps)
+    if let Ok(yt_tracks) = youtube {
+        for t in yt_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
     let _ = db.upsert_tracks(&tracks);
 
     Ok(SearchResult { tracks, source: SearchSource::Remote })
