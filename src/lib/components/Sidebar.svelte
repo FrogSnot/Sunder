@@ -150,4 +150,32 @@
     height: 18px;
     flex-shrink: 0;
   }
+
+  .spacer {
+    flex: 1;
+    min-height: 20px;
+  }
+
+  .nav-btn.settings-nav {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .nav-btn.settings-nav::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--bg-elevated);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--accent);
+    opacity: 0;
+    transition: opacity 200ms ease, transform 200ms var(--ease-out-expo);
+    transform: scale(0.95);
+    z-index: -1;
+  }
+
+  .nav-btn.settings-nav.active::before {
+    opacity: 1;
+    transform: scale(1);
+  }
 </style>
