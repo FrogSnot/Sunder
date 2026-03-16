@@ -6,6 +6,7 @@
   import Explore from "./lib/components/Explore.svelte";
   import PlaylistView from "./lib/components/PlaylistView.svelte";
   import QueueView from "./lib/components/QueueView.svelte";
+  import SettingsView from "./lib/components/SettingsView.svelte";
   import Player from "./lib/components/Player.svelte";
   import Toast from "./lib/components/Toast.svelte";
   import { initProgressListener } from "./lib/ipc/bridge";
@@ -33,6 +34,8 @@
         <Explore />
       {:else if nav.activeTab === "queue"}
         <QueueView />
+      {:else if nav.activeTab === "settings"}
+        <SettingsView />
       {:else}
         <PlaylistView />
       {/if}

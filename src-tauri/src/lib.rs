@@ -1,4 +1,5 @@
 mod audio;
+pub mod config;
 mod db;
 mod error;
 mod extraction;
@@ -6,6 +7,7 @@ mod ipc;
 pub mod models;
 
 use tauri::Manager;
+use crate::config::ConfigManager;
 
 use audio::AudioHandle;
 use db::SearchCache;
@@ -23,6 +25,7 @@ pub fn run() {
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
             app.manage(AudioHandle::new(app.handle().clone()));
             app.manage(Extractor::new());
+            app.manage(ConfigManager::new(&data_dir));
 
             Ok(())
         })
@@ -51,6 +54,8 @@ pub fn run() {
             ipc::commands::set_eq_gains,
             ipc::commands::set_eq_enabled,
             ipc::commands::get_eq_settings,
+            ipc::commands::get_config,
+            ipc::commands::set_config,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

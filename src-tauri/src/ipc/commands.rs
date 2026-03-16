@@ -1,7 +1,18 @@
+use tauri::State;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
-use tauri::State;
+use crate::config::{AppConfig, ConfigManager};
+
+#[tauri::command]
+pub fn get_config(config: State<'_, ConfigManager>) -> AppConfig {
+    config.get()
+}
+
+#[tauri::command]
+pub fn set_config(config: AppConfig, manager: State<'_, ConfigManager>) {
+    manager.update(config);
+}
 
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
