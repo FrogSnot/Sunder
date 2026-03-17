@@ -4,28 +4,9 @@ use std::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
-    /// Default volume (0.0 - 1.0)
     pub volume: f64,
-    /// Whether the equalizer is enabled by default
     pub eq_enabled: bool,
-    /// Equalizer gains per band (10 bands)
     pub eq_gains: Vec<f64>,
-    /// Equalizer preset name
-    pub eq_preset: String,
-    /// Whether to auto-fetch lyrics when a track starts
-    pub lyrics_auto_fetch: bool,
-    /// Maximum search results to show
-    pub search_limit: usize,
-    /// Audio quality for yt-dlp (0 = best, 9 = worst)
-    pub audio_quality: u8,
-    /// Seek step in seconds (for arrow key seeking)
-    pub seek_step_secs: f64,
-    /// Volume step (for arrow key volume changes)
-    pub volume_step: f64,
-    /// Preferred subtitle language for lyrics fallback
-    pub subtitle_lang: String,
-    /// Prefetch ahead count
-    pub prefetch_ahead: usize,
 }
 
 impl Default for AppConfig {
@@ -34,14 +15,6 @@ impl Default for AppConfig {
             volume: 0.8,
             eq_enabled: false,
             eq_gains: vec![0.0; 10],
-            eq_preset: "Flat".into(),
-            lyrics_auto_fetch: false,
-            search_limit: 10,
-            audio_quality: 2,
-            seek_step_secs: 5.0,
-            volume_step: 0.05,
-            subtitle_lang: "en".into(),
-            prefetch_ahead: 2,
         }
     }
 }
@@ -63,12 +36,10 @@ impl ConfigManager {
             AppConfig::default()
         };
 
-        let mgr = Self {
+        Self {
             config: RwLock::new(config),
             path,
-        };
-        mgr.save(); // Ensure file exists with defaults
-        mgr
+        }
     }
 
     pub fn get(&self) -> AppConfig {
