@@ -165,4 +165,14 @@ impl<S: Source<Item = f32>> Source for EqSource<S> {
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.inner.total_duration()
     }
+
+    fn try_seek(&mut self, pos: std::time::Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(pos)?;
+        for ch_states in &mut self.states {
+            for state in ch_states {
+                *state = BiquadState::new();
+            }
+        }
+        Ok(())
+    }
 }
