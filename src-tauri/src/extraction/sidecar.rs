@@ -129,8 +129,6 @@ impl Extractor {
             stream_url: None,
         })
     }
-
-
 }
 
 fn best_thumbnail(v: &serde_json::Value) -> String {

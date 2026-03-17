@@ -31,6 +31,9 @@ pub async fn search(
     let mut seen = HashSet::new();
     let mut tracks = Vec::new();
 
+    let music_err = music.as_ref().err().map(|e| e.to_string());
+    let youtube_err = youtube.as_ref().err().map(|e| e.to_string());
+
     // YT Music results first (priority)
     if let Ok(music_tracks) = music {
         for t in music_tracks {
@@ -46,6 +49,16 @@ pub async fn search(
             if seen.insert(t.id.clone()) {
                 tracks.push(t);
             }
+        }
+    }
+
+    // If both sources failed, propagate the error instead of returning empty results
+    if tracks.is_empty() {
+        if let Some(e) = music_err {
+            return Err(e);
+        }
+        if let Some(e) = youtube_err {
+            return Err(e);
         }
     }
 
