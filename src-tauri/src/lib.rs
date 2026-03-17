@@ -21,10 +21,26 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::current_dir().unwrap().join("sunder_data"));
 
+            let config_manager = ConfigManager::new(&data_dir);
+            let initial_config = config_manager.get();
+
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
-            app.manage(AudioHandle::new(app.handle().clone()));
+            app.manage(AudioHandle::new(
+                app.handle().clone(),
+                initial_config.volume as f32,
+                crate::audio::equalizer::EqSettings {
+                    enabled: initial_config.eq_enabled,
+                    gains: {
+                        let mut g = [0.0_f32; 10];
+                        for (i, &v) in initial_config.eq_gains.iter().enumerate().take(10) {
+                            g[i] = v as f32;
+                        }
+                        g
+                    },
+                },
+            ));
             app.manage(Extractor::new());
-            app.manage(ConfigManager::new(&data_dir));
+            app.manage(config_manager);
 
             // System Tray Setup
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

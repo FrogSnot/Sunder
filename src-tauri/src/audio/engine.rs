@@ -42,13 +42,13 @@ pub struct AudioHandle {
 }
 
 impl AudioHandle {
-    pub fn new(app: tauri::AppHandle) -> Self {
+    pub fn new(app: tauri::AppHandle, volume: f32, eq: EqSettings) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let state = Arc::new(RwLock::new(PlaybackState::Idle));
         let position_ms = Arc::new(AtomicU64::new(0));
         let duration_ms = Arc::new(AtomicU64::new(0));
-        let volume = Arc::new(RwLock::new(0.8_f32));
-        let eq_settings = Arc::new(RwLock::new(EqSettings::default()));
+        let volume = Arc::new(RwLock::new(volume));
+        let eq_settings = Arc::new(RwLock::new(eq));
         let current_session = Arc::new(AtomicUsize::new(0));
 
         let handle = Self {

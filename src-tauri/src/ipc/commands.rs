@@ -125,8 +125,18 @@ pub async fn stop(audio: State<'_, AudioHandle>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn set_volume(volume: f32, audio: State<'_, AudioHandle>) -> Result<(), String> {
-    audio.send(AudioCommand::SetVolume(volume.clamp(0.0, 1.0)));
+pub async fn set_volume(
+    volume: f32,
+    audio: State<'_, AudioHandle>,
+    config: State<'_, ConfigManager>,
+) -> Result<(), String> {
+    let vol = volume.clamp(0.0, 1.0);
+    audio.send(AudioCommand::SetVolume(vol));
+
+    let mut c = config.get();
+    c.volume = vol as f64;
+    config.update(c);
+
     Ok(())
 }
 
@@ -152,7 +162,11 @@ pub async fn get_playback_state(audio: State<'_, AudioHandle>) -> Result<serde_j
 }
 
 #[tauri::command]
-pub async fn set_eq_gains(gains: Vec<f32>, audio: State<'_, AudioHandle>) -> Result<(), String> {
+pub async fn set_eq_gains(
+    gains: Vec<f32>,
+    audio: State<'_, AudioHandle>,
+    config: State<'_, ConfigManager>,
+) -> Result<(), String> {
     if gains.len() != BAND_COUNT {
         return Err(format!("expected {BAND_COUNT} gain values"));
     }
@@ -161,12 +175,26 @@ pub async fn set_eq_gains(gains: Vec<f32>, audio: State<'_, AudioHandle>) -> Res
         arr[i] = g.clamp(-12.0, 12.0);
     }
     audio.eq_settings.write().unwrap().gains = arr;
+
+    let mut c = config.get();
+    c.eq_gains = arr.iter().map(|&g| g as f64).collect();
+    config.update(c);
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn set_eq_enabled(enabled: bool, audio: State<'_, AudioHandle>) -> Result<(), String> {
+pub async fn set_eq_enabled(
+    enabled: bool,
+    audio: State<'_, AudioHandle>,
+    config: State<'_, ConfigManager>,
+) -> Result<(), String> {
     audio.eq_settings.write().unwrap().enabled = enabled;
+
+    let mut c = config.get();
+    c.eq_enabled = enabled;
+    config.update(c);
+
     Ok(())
 }
 

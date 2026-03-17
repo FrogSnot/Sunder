@@ -20,6 +20,8 @@
   } from "./lib/ipc/bridge";
   import { player } from "./lib/state/player.svelte";
   import { nav } from "./lib/state/nav.svelte";
+  import { config } from "./lib/state/config.svelte";
+  import { setEqEnabled, setEqGains } from "./lib/ipc/bridge";
 
   let cleanup: (() => void) | undefined;
 
@@ -27,9 +29,22 @@
   const seekStep = 5;
   const volStep = 0.05;
 
-  onMount(() => {
+  onMount(async () => {
     cleanup = initProgressListener();
     window.addEventListener("keydown", handleKeyDown);
+
+    // Initial config load and synchronization
+    await config.load();
+    player.volume = config.current.volume;
+    player.eqEnabled = config.current.eq_enabled;
+    player.eqGains = [...config.current.eq_gains];
+
+    // Sync backend EQ state with loaded config if needed
+    // setVolume is handled during playback start usually, but let's ensure it's set
+    await setVolume(player.volume);
+    await setEqEnabled(player.eqEnabled);
+    await setEqGains(player.eqGains);
+
     return () => {
       cleanup?.();
       window.removeEventListener("keydown", handleKeyDown);

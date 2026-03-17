@@ -75,8 +75,11 @@ export async function stop(): Promise<void> {
 }
 
 export async function setVolume(volume: number): Promise<void> {
-  player.volume = volume;
-  await invoke("set_volume", { volume });
+  const vol = Math.max(0, Math.min(1, volume));
+  player.volume = vol;
+  const { config } = await import("../state/config.svelte");
+  await config.update({ volume: vol });
+  await invoke("set_volume", { volume: vol });
 }
 
 export async function seek(positionSecs: number): Promise<void> {
@@ -132,10 +135,14 @@ export async function getExplore(): Promise<ExploreData> {
 }
 
 export async function setEqGains(gains: number[]): Promise<void> {
+  const { config } = await import("../state/config.svelte");
+  await config.update({ eq_gains: gains });
   await invoke("set_eq_gains", { gains });
 }
 
 export async function setEqEnabled(enabled: boolean): Promise<void> {
+  const { config } = await import("../state/config.svelte");
+  await config.update({ eq_enabled: enabled });
   await invoke("set_eq_enabled", { enabled });
 }
 
