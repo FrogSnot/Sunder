@@ -81,6 +81,7 @@ pub struct EqSource<S: Source<Item = f32>> {
     sample_rate: u32,
     channel_idx: u16,
     fade_samples: usize,
+    silence_samples: usize,
     fade_counter: usize,
     needs_refresh: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -111,7 +112,8 @@ impl<S: Source<Item = f32>> EqSource<S> {
             channels,
             sample_rate,
             channel_idx: 0,
-            fade_samples: (sample_rate as f32 * 0.06) as usize, // 60ms fade
+            fade_samples: (sample_rate as f32 * 0.10) as usize, // 100ms fade
+            silence_samples: (sample_rate as f32 * 0.05) as usize, // 50ms absolute silence
             fade_counter: 0,
             needs_refresh: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
@@ -144,25 +146,31 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
             self.needs_refresh.store(false, std::sync::atomic::Ordering::Relaxed);
         }
 
-        if !self.enabled {
-            return Some(sample);
-        }
+        let mut out = if self.enabled {
+            let mut v = sample as f64;
+            for (i, state) in self.states[ch].iter_mut().enumerate() {
+                v = state.process(&self.coeffs[i], v);
+            }
+            v.clamp(-1.0, 1.0) as f32
+        } else {
+            sample
+        };
 
-        let mut v = sample as f64;
-        for (i, state) in self.states[ch].iter_mut().enumerate() {
-            v = state.process(&self.coeffs[i], v);
-        }
-
-        let mut out = v.clamp(-1.0, 1.0) as f32;
-        if self.fade_counter < self.fade_samples {
-            // Use quadratic ramp for smoother entry (prevents perceived 'thump')
-            let t = self.fade_counter as f32 / self.fade_samples as f32;
-            let gain = t * t; 
+        // Silence + Fade-in logic (always active to prevent pops)
+        if self.fade_counter < self.silence_samples {
+            out = 0.0;
+            if ch == (self.channels - 1) as usize {
+                self.fade_counter += 1;
+            }
+        } else if self.fade_counter < (self.silence_samples + self.fade_samples) {
+            let t = (self.fade_counter - self.silence_samples) as f32 / self.fade_samples as f32;
+            let gain = t * t * t; 
             out *= gain;
             if ch == (self.channels - 1) as usize {
                 self.fade_counter += 1;
             }
         }
+
         Some(out)
     }
 }

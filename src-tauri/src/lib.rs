@@ -68,21 +68,32 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .on_menu_event(|app: &tauri::AppHandle, event| {
-                    match event.id.as_ref() {
+                .on_menu_event(|app, event| {
+                    let id = event.id().0.as_str();
+                    eprintln!("[sunder] tray menu event: {}", id);
+                    
+                    let window = app.get_webview_window("main");
+                    
+                    match id {
                         "play_pause" => {
-                            let _ = app.emit("media-toggle", ());
+                            if let Some(w) = window {
+                                let _ = w.emit("media-toggle", ());
+                            }
                         }
                         "next" => {
-                            let _ = app.emit("media-next", ());
+                            if let Some(w) = window {
+                                let _ = w.emit("media-next", ());
+                            }
                         }
                         "prev" => {
-                            let _ = app.emit("media-previous", ());
+                            if let Some(w) = window {
+                                let _ = w.emit("media-previous", ());
+                            }
                         }
                         "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
+                            if let Some(w) = window {
+                                let _ = w.show();
+                                let _ = w.set_focus();
                             }
                         }
                         "restart" => {
@@ -94,7 +105,7 @@ pub fn run() {
                         _ => {}
                     }
                 })
-                .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
+                .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
                             let _ = window.show();
@@ -103,7 +114,7 @@ pub fn run() {
                     }
                 })
                 .menu(&tray_menu)
-                .show_menu_on_left_click(false) // This is key for Tauri v2 to prevent menu on left click
+                .show_menu_on_left_click(false)
                 .build(app)?;
 
             // Wayland Icon Fix & Window Decoration

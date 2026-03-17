@@ -193,6 +193,7 @@ fn audio_thread(
 
     let mut last_mpris_state: Option<PlaybackState> = None;
     let mut last_mpris_pos: u64 = 0;
+    let mut current_video_id: Option<String> = None;
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(50));
@@ -213,6 +214,7 @@ fn audio_thread(
             match cmd {
                 AudioCommand::Play { video_id, duration_ms: dur } => {
                     let session_id = current_session.fetch_add(1, Ordering::SeqCst) + 1;
+                    current_video_id = Some(video_id.clone());
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
@@ -299,24 +301,32 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Seek(secs) => {
-                    if let Some(ref s) = sink {
+                    if let (Some(ref id), Some(mut s)) = (current_video_id.as_ref(), sink.take()) {
                         let d = Duration::from_secs_f64(secs.max(0.0));
+                        s.stop();
+                        drop(s);
                         
-                        // Smooth fade out before seek to prevent cut-off pop
-                        // We do this by dropping volume in steps over 20ms
-                        let orig_vol = *volume.read().unwrap();
-                        for i in (0..10).rev() {
-                            s.set_volume(orig_vol * (i as f32 / 10.0));
-                            std::thread::sleep(Duration::from_millis(8)); // Doubled from 4ms
+                        // Recreate sink to guarantee absolute buffer flush from old samples
+                        match start_streaming(
+                            id, 
+                            &state, 
+                            &stream_handle, 
+                            *volume.read().unwrap(), 
+                            &eq_settings, 
+                            &app, 
+                            current_session.load(Ordering::SeqCst), 
+                            &current_session
+                        ) {
+                            Ok(mut new_sink) => {
+                                let _ = new_sink.try_seek(d);
+                                sink = Some(new_sink);
+                                *state.write().unwrap() = PlaybackState::Playing;
+                                position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                            }
+                            Err(e) => {
+                                eprintln!("[sunder] seek recovery failed: {}", e);
+                            }
                         }
-
-                        if let Err(e) = s.try_seek(d) {
-                            eprintln!("[sunder] seek failed: {e}");
-                        } else {
-                            position_ms.store((secs * 1000.0) as u64, Ordering::Release);
-                        }
-                        
-                        s.set_volume(orig_vol);
                     }
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
