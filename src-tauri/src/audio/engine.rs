@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rodio::{Decoder, OutputStream, Sink, Source};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 
 /// Wrapper to send a raw HWND pointer across threads.
@@ -61,7 +61,7 @@ impl AudioHandle {
 
         let hwnd = Self::extract_hwnd(&app);
 
-        let app_handle = app.handle().clone();
+        let app_handle = app.app_handle().clone();
         let current_session_clone = current_session.clone();
         let tx_clone = tx.clone();
 

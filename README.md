@@ -24,11 +24,15 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 ## Features
 
 ### Playback
-- **YouTube search** with instant results and FTS5-powered local caching
+- **Dual-source search** queries YouTube Music and regular YouTube simultaneously, ranked and deduplicated
 - **Native audio** via rodio, talking directly to ALSA/PipeWire/Pulse with no Web Audio overhead
 - **Smart error recovery** if a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
 - **Retry with bypass** yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
-- **Prefetching** silently pre-downloads upcoming tracks for seamless transitions
+- **Non-blocking prefetch** audio is prepared in a background thread with early session checks to discard stale loads; upcoming tracks are pre-downloaded for seamless transitions
+
+### Lyrics
+- **Synchronized lyrics** fetched on demand via yt-dlp subtitles and displayed in a dedicated view
+- **Lazy fetch** lyrics are only requested when the lyrics panel is opened, never on every track load
 
 ### Queue
 - **Three-section view**: Now Playing card, Next Up (with drag-to-reorder), Previously Played
@@ -38,7 +42,18 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 
 ### Playlists
 - **Full CRUD** with inline rename, quick-play, and drag-to-reorder
+- **YouTube Music playlist import** paste a YT Music playlist URL to import it by name in one step
 - **Remove from context menu** right-click any track to remove it from the current playlist
+
+### System Integration
+- **MPRIS support** (Linux) full media player remote interface: play/pause, next, previous, metadata, and position exposed to desktop environments and media key daemons
+- **Windows media keys** HWND-based system media controller wired to the same events
+- **System tray** cross-platform tray icon with play/pause, next, previous, and quit controls; left-click raises the window
+- **Global keyboard shortcuts** media keys and configurable bindings for seek and volume
+
+### Settings
+- **Persistent config** volume level, EQ enabled state, and EQ band gains are saved across restarts
+- **Audio equalizer** 10-band parametric EQ with per-band gain control
 
 ### App
 - **Explore** with personalized recommendations built from your listening history
@@ -178,11 +193,15 @@ Audio is cached temporarily in `/tmp/sunder/` and automatically reused on replay
 
 ## Roadmap
 
+- [x] Audio equalizer
+- [x] Lyrics display
+- [x] Keyboard shortcuts / media key support
+- [x] System tray with playback controls
+- [x] MPRIS / system media controller (Linux + Windows)
+- [x] Dual-source search (YouTube Music + YouTube)
+- [x] YouTube Music playlist import
+- [x] Persistent settings (volume, EQ)
 - [ ] Local track downloads with library management
-- [ ] Lyrics display
-- [ ] Keyboard shortcuts / media key support
-- [ ] System tray with mini player
-- [X] Audio equalizer
 
 ## License
 
