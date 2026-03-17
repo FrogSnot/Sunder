@@ -197,7 +197,7 @@ fn audio_thread(
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
-                    emit_state(&app, &state, &position_ms, &duration_ms);
+                    emit_state(&app, &state, &position_ms, &duration_ms, &volume);
 
                     let app_clone = app.clone();
                     let state_clone = state.clone();
@@ -241,13 +241,13 @@ fn audio_thread(
                         position_ms.store(0, Ordering::Release);
                         sink = Some(new_sink);
                         *state.write().unwrap() = PlaybackState::Playing;
-                        emit_state(&app, &state, &position_ms, &duration_ms);
+                        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                     }
                 }
                 AudioCommand::LoadFailed { session_id, video_id, error } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
-                        emit_state(&app, &state, &position_ms, &duration_ms);
+                        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                         let _ = app.emit("playback-error", serde_json::json!({
                             "video_id": video_id,
                             "error": error,
@@ -282,11 +282,14 @@ fn audio_thread(
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
                         let d = Duration::from_secs_f64(secs.max(0.0));
+                        let original_vol = *volume.read().unwrap();
+                        s.set_volume(0.0);
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
                         } else {
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                         }
+                        s.set_volume(original_vol);
                     }
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
@@ -368,7 +371,7 @@ fn audio_thread(
             let _ = app.emit("track-finished", ());
         }
 
-        emit_state(&app, &state, &position_ms, &duration_ms);
+        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
     }
 }
 
@@ -518,6 +521,7 @@ struct ProgressPayload {
     position_ms: u64,
     duration_ms: u64,
     state: String,
+    volume: f32,
 }
 
 fn emit_state(
@@ -525,6 +529,7 @@ fn emit_state(
     state: &Arc<RwLock<PlaybackState>>,
     position_ms: &Arc<AtomicU64>,
     duration_ms: &Arc<AtomicU64>,
+    volume: &Arc<RwLock<f32>>,
 ) {
     let _ = app.emit(
         "playback-progress",
@@ -532,6 +537,7 @@ fn emit_state(
             position_ms: position_ms.load(Ordering::Relaxed),
             duration_ms: duration_ms.load(Ordering::Relaxed),
             state: state.read().unwrap().to_string(),
+            volume: *volume.read().unwrap(),
         },
     );
 }

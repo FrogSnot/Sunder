@@ -21,6 +21,7 @@ class PlayerState {
   lastError = $state("");
   failedTrack = $state<Track | null>(null);
   findingAlt = $state(false);
+  isVolumeInteracting = $state(false);
 
   eqEnabled = $state(false);
   eqGains = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -48,6 +49,9 @@ class PlayerState {
       this.lastError = "";
       this.failedTrack = null;
       this.findingAlt = false;
+    }
+    if (!this.isVolumeInteracting) {
+      this.volume = p.volume;
     }
   }
 

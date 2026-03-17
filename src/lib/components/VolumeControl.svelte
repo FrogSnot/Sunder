@@ -62,6 +62,8 @@
     step="0.01"
     value={player.volume}
     oninput={handleInput}
+    onpointerdown={() => player.isVolumeInteracting = true}
+    onpointerup={() => player.isVolumeInteracting = false}
     class="vol-slider"
     aria-label="Volume"
   />
