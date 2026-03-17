@@ -82,6 +82,7 @@ pub struct EqSource<S: Source<Item = f32>> {
     channel_idx: u16,
     fade_samples: usize,
     fade_counter: usize,
+    needs_refresh: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<S: Source<Item = f32>> EqSource<S> {
@@ -110,8 +111,9 @@ impl<S: Source<Item = f32>> EqSource<S> {
             channels,
             sample_rate,
             channel_idx: 0,
-            fade_samples: (sample_rate as f32 * 0.03) as usize, // 30ms fade
+            fade_samples: (sample_rate as f32 * 0.06) as usize, // 60ms fade
             fade_counter: 0,
+            needs_refresh: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -137,8 +139,9 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
         let ch = self.channel_idx as usize;
         self.channel_idx = (self.channel_idx + 1) % self.channels;
 
-        if ch == 0 {
+        if ch == 0 && self.needs_refresh.load(std::sync::atomic::Ordering::Relaxed) {
             self.refresh();
+            self.needs_refresh.store(false, std::sync::atomic::Ordering::Relaxed);
         }
 
         if !self.enabled {
@@ -152,7 +155,9 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
 
         let mut out = v.clamp(-1.0, 1.0) as f32;
         if self.fade_counter < self.fade_samples {
-            let gain = self.fade_counter as f32 / self.fade_samples as f32;
+            // Use quadratic ramp for smoother entry (prevents perceived 'thump')
+            let t = self.fade_counter as f32 / self.fade_samples as f32;
+            let gain = t * t; 
             out *= gain;
             if ch == (self.channels - 1) as usize {
                 self.fade_counter += 1;

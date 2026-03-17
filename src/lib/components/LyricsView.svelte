@@ -16,14 +16,28 @@
     }
   });
 
-  // Auto-scroll to current synced line
+  let activeIndex = $state(-1);
+  let lastScrollIdx = $state(-1);
+  
+  // Update active index
   $effect(() => {
-    if (!lyricsState.synced || !lyricsState.visible) return;
+    if (!lyricsState.synced || !lyricsState.visible) {
+      activeIndex = -1;
+      return;
+    }
     const positionSecs = player.currentTime;
     const idx = lyricsState.syncedLines.findLastIndex((l) => l.time <= positionSecs);
-    if (idx >= 0 && lyricsContainer) {
-      const el = lyricsContainer.children[idx] as HTMLElement | undefined;
+    if (idx !== activeIndex) {
+      activeIndex = idx;
+    }
+  });
+
+  // Auto-scroll to current synced line with debounced/change-only logic
+  $effect(() => {
+    if (activeIndex >= 0 && activeIndex !== lastScrollIdx && lyricsContainer) {
+      const el = lyricsContainer.children[activeIndex] as HTMLElement | undefined;
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      lastScrollIdx = activeIndex;
     }
   });
 </script>
@@ -49,9 +63,12 @@
         <p class="lyrics-status">{lyricsState.error}</p>
       {:else if lyricsState.synced}
         {#each lyricsState.syncedLines as line, i}
-          {@const positionSecs = player.currentTime}
-          {@const isActive = i === lyricsState.syncedLines.findLastIndex((l) => l.time <= positionSecs)}
-          <p class="lyric-line" class:active={isActive}>{line.text || "\u00A0"}</p>
+          <p 
+            class="lyric-line" 
+            class:active={i === activeIndex}
+          >
+            {line.text || "\u00A0"}
+          </p>
         {/each}
       {:else if lyricsState.content}
         <pre class="plain-lyrics">{lyricsState.content}</pre>
@@ -141,17 +158,21 @@
   }
 
   .lyric-line {
-    padding: 4px 0;
-    font-size: 0.9rem;
+    padding: 6px 0;
+    font-size: 0.95rem;
     color: var(--text-muted);
-    transition: color 200ms ease, font-size 200ms ease;
+    transition: color 400ms ease, transform 400ms var(--ease-out-expo), opacity 400ms ease, text-shadow 400ms ease;
     line-height: 1.6;
+    transform-origin: left center;
+    will-change: transform, color, opacity;
   }
-
+  
   .lyric-line.active {
-    color: var(--accent);
-    font-size: 1rem;
-    font-weight: 500;
+    color: var(--text-primary);
+    transform: scale(1.1);
+    font-weight: 600;
+    opacity: 1;
+    text-shadow: 0 0 16px rgba(212, 160, 23, 0.4);
   }
 
   .plain-lyrics {

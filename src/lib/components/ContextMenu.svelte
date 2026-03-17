@@ -102,8 +102,15 @@
 <svelte:window onclick={close} oncontextmenu={() => { if (visible) close(); }} />
 
 {#if visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <div class="ctx-menu" style="left: {x}px; top: {y}px" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <section 
+    class="ctx-menu" 
+    style="left: {x}px; top: {y}px" 
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => { if (e.key === "Escape") close(); }}
+    role="menu"
+    tabindex="-1"
+  >
     {#if !showPlaylists}
       <button class="ctx-item" onclick={handlePlayNext}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/><line x1="22" y1="3" x2="22" y2="21"/></svg>
@@ -156,7 +163,7 @@
         {/each}
       {/if}
     {/if}
-  </div>
+  </section>
 {/if}
 
 <style>

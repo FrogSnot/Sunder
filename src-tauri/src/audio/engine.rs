@@ -233,7 +233,7 @@ fn audio_thread(
                             return;
                         }
                         let vol = *volume_clone.read().unwrap();
-                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone) {
+                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone, session_id, &session_clone) {
                             Ok(new_sink) => {
                                 let _ = tx_clone.send(AudioCommand::Prepared {
                                     session_id,
@@ -301,11 +301,22 @@ fn audio_thread(
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
                         let d = Duration::from_secs_f64(secs.max(0.0));
+                        
+                        // Smooth fade out before seek to prevent cut-off pop
+                        // We do this by dropping volume in steps over 20ms
+                        let orig_vol = *volume.read().unwrap();
+                        for i in (0..10).rev() {
+                            s.set_volume(orig_vol * (i as f32 / 10.0));
+                            std::thread::sleep(Duration::from_millis(8)); // Doubled from 4ms
+                        }
+
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
                         } else {
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                         }
+                        
+                        s.set_volume(orig_vol);
                     }
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
@@ -403,6 +414,8 @@ fn start_streaming(
     volume: f32,
     eq_settings: &Arc<RwLock<EqSettings>>,
     app: &tauri::AppHandle,
+    session_id: usize,
+    current_session: &Arc<AtomicUsize>,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -460,6 +473,10 @@ fn start_streaming(
 
             if let Some(stdout) = child.stdout.take() {
                 for line in io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                    if current_session.load(Ordering::SeqCst) != session_id {
+                        let _ = child.kill();
+                        return Err(crate::error::AppError::Extraction("Session superseded".into()));
+                    }
                     if let Some(pct) = parse_download_pct(&line) {
                         let _ = app.emit("download-progress", serde_json::json!({
                             "percent": pct, "stage": "downloading"
@@ -484,6 +501,11 @@ fn start_streaming(
             if status.success() && expected_path.exists() {
                 last_error.clear();
                 break;
+            }
+
+            // Abort early if a newer playback session has started
+            if current_session.load(Ordering::SeqCst) != session_id {
+                return Err(crate::error::AppError::Extraction("Session superseded".into()));
             }
 
             let stderr_out = child.stderr.take()
