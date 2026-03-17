@@ -8,6 +8,7 @@
   import QueueView from "./lib/components/QueueView.svelte";
   import Player from "./lib/components/Player.svelte";
   import Toast from "./lib/components/Toast.svelte";
+  import LyricsView from "./lib/components/LyricsView.svelte";
   import { 
     initProgressListener,
     pause,
@@ -107,10 +108,11 @@
         <PlaylistView />
       {/if}
     </section>
-
-    <Player />
   </div>
+
+  <Player />
   <Toast />
+  <LyricsView />
 </main>
 
 <style>

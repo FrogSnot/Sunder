@@ -263,6 +263,15 @@ pub async fn prefetch_track(
 }
 
 #[tauri::command]
+pub async fn get_subtitles(
+    video_id: String,
+    lang: String,
+    extractor: State<'_, Extractor>,
+) -> Result<String, String> {
+    extractor.get_subtitles(&video_id, &lang).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn import_yt_playlist(
     url: String,
     playlist_name: String,
