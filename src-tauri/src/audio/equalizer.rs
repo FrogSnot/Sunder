@@ -80,6 +80,8 @@ pub struct EqSource<S: Source<Item = f32>> {
     channels: u16,
     sample_rate: u32,
     channel_idx: u16,
+    fade_samples: usize,
+    fade_counter: usize,
 }
 
 impl<S: Source<Item = f32>> EqSource<S> {
@@ -108,6 +110,8 @@ impl<S: Source<Item = f32>> EqSource<S> {
             channels,
             sample_rate,
             channel_idx: 0,
+            fade_samples: (sample_rate as f32 * 0.03) as usize, // 30ms fade
+            fade_counter: 0,
         }
     }
 
@@ -145,7 +149,16 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
         for (i, state) in self.states[ch].iter_mut().enumerate() {
             v = state.process(&self.coeffs[i], v);
         }
-        Some(v.clamp(-1.0, 1.0) as f32)
+
+        let mut out = v.clamp(-1.0, 1.0) as f32;
+        if self.fade_counter < self.fade_samples {
+            let gain = self.fade_counter as f32 / self.fade_samples as f32;
+            out *= gain;
+            if ch == (self.channels - 1) as usize {
+                self.fade_counter += 1;
+            }
+        }
+        Some(out)
     }
 }
 
@@ -173,6 +186,7 @@ impl<S: Source<Item = f32>> Source for EqSource<S> {
                 *state = BiquadState::new();
             }
         }
+        self.fade_counter = 0;
         Ok(())
     }
 }

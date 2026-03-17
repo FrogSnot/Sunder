@@ -147,23 +147,42 @@ fn audio_thread(
             let app_clone = app.clone();
             let _ = c.attach(move |event| {
                 match event {
-                    MediaControlEvent::Pause => { let _ = tx_clone.send(AudioCommand::Pause); }
-                    MediaControlEvent::Play => { let _ = tx_clone.send(AudioCommand::Resume); }
+                    MediaControlEvent::Pause => {
+                        eprintln!("[sunder] mpris: pause");
+                        let _ = tx_clone.send(AudioCommand::Pause);
+                    }
+                    MediaControlEvent::Play => {
+                        eprintln!("[sunder] mpris: play");
+                        let _ = tx_clone.send(AudioCommand::Resume);
+                    }
                     MediaControlEvent::Toggle => {
-                        // Toggle routes through the frontend so it can update UI state
+                        eprintln!("[sunder] mpris: toggle");
                         let _ = app_clone.emit("media-toggle", ());
                     }
                     MediaControlEvent::Next => {
+                        eprintln!("[sunder] mpris: next");
                         let _ = app_clone.emit("media-next", ());
                     }
                     MediaControlEvent::Previous => {
+                        eprintln!("[sunder] mpris: previous");
                         let _ = app_clone.emit("media-previous", ());
                     }
-                    MediaControlEvent::Stop => { let _ = tx_clone.send(AudioCommand::Stop); }
-                    MediaControlEvent::Seek(_) => {}
+                    MediaControlEvent::Stop => {
+                        eprintln!("[sunder] mpris: stop");
+                        let _ = tx_clone.send(AudioCommand::Stop);
+                    }
+                    MediaControlEvent::Seek(pos) => {
+                        eprintln!("[sunder] mpris: seek {:?}", pos);
+                    }
                     MediaControlEvent::SeekBy(_, _) => {}
-                    MediaControlEvent::SetPosition(pos) => { let _ = tx_clone.send(AudioCommand::Seek(pos.0.as_secs_f64())); }
-                    MediaControlEvent::SetVolume(v) => { let _ = tx_clone.send(AudioCommand::SetVolume(v as f32)); }
+                    MediaControlEvent::SetPosition(pos) => {
+                        eprintln!("[sunder] mpris: set position {:?}", pos);
+                        let _ = tx_clone.send(AudioCommand::Seek(pos.0.as_secs_f64()));
+                    }
+                    MediaControlEvent::SetVolume(v) => {
+                        eprintln!("[sunder] mpris: set volume {}", v);
+                        let _ = tx_clone.send(AudioCommand::SetVolume(v as f32));
+                    }
                     _ => {}
                 }
             });
@@ -282,14 +301,11 @@ fn audio_thread(
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
                         let d = Duration::from_secs_f64(secs.max(0.0));
-                        let original_vol = *volume.read().unwrap();
-                        s.set_volume(0.0);
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
                         } else {
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                         }
-                        s.set_volume(original_vol);
                     }
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
@@ -328,10 +344,12 @@ fn audio_thread(
                     PlaybackState::Paused => {
                         let _ = c.set_playback(MediaPlayback::Paused { progress });
                     }
-                    PlaybackState::Stopped | PlaybackState::Idle => {
+                    PlaybackState::Stopped | PlaybackState::Idle | PlaybackState::Error(_) => {
                         let _ = c.set_playback(MediaPlayback::Stopped);
                     }
-                    _ => {}
+                    PlaybackState::Loading | PlaybackState::Buffering => {
+                        let _ = c.set_playback(MediaPlayback::Playing { progress: None });
+                    }
                 }
 
                 last_mpris_state = Some(st);
