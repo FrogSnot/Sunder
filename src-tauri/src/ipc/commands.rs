@@ -84,58 +84,6 @@ pub async fn play_track(
     };
 
     if let Some(t) = track_info {
-        audio.send(AudioCommand::UpdateMetadata {
-            title: t.title.clone(),
-            artist: t.artist.clone(),
-            thumbnail: Some(t.thumbnail.clone()),
-        });
-
-        // Trigger system notification with thumbnail
-        let app = audio.app_handle().clone();
-        let title = t.title.clone();
-        let artist = t.artist.clone();
-        let thumb_url = t.thumbnail.clone();
-        let tid = track_id.clone();
-
-        tauri::async_runtime::spawn(async move {
-            let thumb_orig = std::env::temp_dir().join(format!("{}_thumb_orig.jpg", tid));
-            let thumb_square = std::env::temp_dir().join(format!("{}_thumb.jpg", tid));
-            
-            // Download thumbnail if it doesn't exist
-            if !thumb_square.exists() {
-                if let Ok(response) = reqwest::get(&thumb_url).await {
-                    if let Ok(bytes) = response.bytes().await {
-                        let _ = std::fs::write(&thumb_orig, bytes);
-                    }
-                }
-
-                if thumb_orig.exists() {
-                    // Zoom and crop to centered square using ffmpeg
-                    // We scale to 512x512 while increasing to fill, then crop the center 512x512
-                    let _ = tokio::process::Command::new("ffmpeg")
-                        .args([
-                            "-i", thumb_orig.to_str().unwrap_or_default(),
-                            "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
-                            "-y", thumb_square.to_str().unwrap_or_default()
-                        ])
-                        .status()
-                        .await;
-                }
-            }
-
-            let mut builder = app.notification().builder()
-                .title(title)
-                .body(artist);
-            
-            if thumb_square.exists() {
-                // Use icon() which is generally more reliable for standard notification thumbnails
-                if let Some(path_str) = thumb_square.to_str() {
-                    builder = builder.icon(path_str);
-                }
-            }
-
-            let _ = builder.show();
-        });
     }
 
     let config = config.get();
@@ -304,15 +252,7 @@ pub async fn import_yt_playlist(
     })
 }
 
-/// Fetch track subtitles from YouTube if synced lyrics aren't found in other sources.
-#[tauri::command]
-pub async fn get_subtitles(
-    video_id: String,
-    lang: String,
-    extractor: State<'_, Extractor>,
-) -> Result<String, String> {
-    extractor.get_subtitles(&video_id, &lang).await.map_err(|e: crate::error::AppError| e.to_string())
-}
+
 
 #[tauri::command]
 pub async fn prefetch_track(
@@ -499,15 +439,4 @@ fn chrono_minute() -> usize {
     (secs / 60) as usize
 }
 
-/// Retrieve the current application configuration.
-#[tauri::command]
-pub async fn get_config(config: State<'_, ConfigManager>) -> Result<AppConfig, String> {
-    Ok(config.get())
-}
 
-/// Persist a new application configuration.
-#[tauri::command]
-pub async fn set_config(new_config: AppConfig, config: State<'_, ConfigManager>) -> Result<(), String> {
-    config.update(new_config);
-    Ok(())
-}
