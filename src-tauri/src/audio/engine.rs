@@ -127,8 +127,13 @@ fn audio_thread(
                     let eq_settings_clone = eq_settings.clone();
                     let tx_clone = tx.clone();
                     let video_id_clone = video_id.clone();
+                    let session_clone = current_session.clone();
 
                     std::thread::spawn(move || {
+                        // Early exit if session was already superseded (rapid skip)
+                        if session_clone.load(Ordering::SeqCst) != session_id {
+                            return;
+                        }
                         let vol = *volume_clone.read().unwrap();
                         match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone) {
                             Ok(new_sink) => {
