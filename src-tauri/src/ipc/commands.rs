@@ -92,7 +92,7 @@ pub async fn play_track(
         _ => {
             match extractor.metadata(&track_id).await {
                 Ok(t) => {
-                    let _ = db.upsert_tracks(&[t.clone()]);
+                    let _ = db.upsert_tracks(std::slice::from_ref(&t));
                     ((t.duration_secs * 1000.0) as u64, t.title, t.artist)
                 }
                 Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string()),

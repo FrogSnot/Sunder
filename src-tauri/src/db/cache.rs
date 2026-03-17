@@ -411,7 +411,7 @@ mod tests {
     fn get_track_by_id_finds_inserted_track() {
         let db = temp_cache();
         let track = sample_track("abc123");
-        db.upsert_tracks(&[track.clone()]).unwrap();
+        db.upsert_tracks(std::slice::from_ref(&track)).unwrap();
 
         let found = db.get_track_by_id("abc123").unwrap().unwrap();
         assert_eq!(found.id, "abc123");
@@ -467,8 +467,8 @@ mod tests {
     fn upsert_idempotent() {
         let db = temp_cache();
         let t = sample_track("repeat");
-        db.upsert_tracks(&[t.clone()]).unwrap();
-        db.upsert_tracks(&[t]).unwrap();
+        db.upsert_tracks(std::slice::from_ref(&t)).unwrap();
+        db.upsert_tracks(std::slice::from_ref(&t)).unwrap();
 
         let found = db.get_track_by_id("repeat").unwrap();
         assert!(found.is_some());

@@ -26,6 +26,7 @@ pub enum AudioCommand {
     Stop,
     SetVolume(f32),
     Seek(f64),
+    #[allow(dead_code)]
     UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
 }
 
@@ -36,6 +37,7 @@ pub struct AudioHandle {
     pub duration_ms: Arc<AtomicU64>,
     pub volume: Arc<RwLock<f32>>,
     pub eq_settings: Arc<RwLock<EqSettings>>,
+    #[allow(dead_code)]
     pub current_session: Arc<AtomicUsize>,
 }
 
@@ -111,6 +113,7 @@ fn ytdlp_bin() -> String {
     std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn audio_thread(
     tx: std::sync::mpsc::Sender<AudioCommand>,
     rx: std::sync::mpsc::Receiver<AudioCommand>,
@@ -383,7 +386,7 @@ fn start_streaming(
 
     let cache_dir = std::env::temp_dir().join("sunder");
     std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| crate::error::AppError::Io(e))?;
+        .map_err(crate::error::AppError::Io)?;
 
     let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
@@ -433,7 +436,7 @@ fn start_streaming(
             };
 
             if let Some(stdout) = child.stdout.take() {
-                for line in io::BufReader::new(stdout).lines().flatten() {
+                for line in io::BufReader::new(stdout).lines().map_while(Result::ok) {
                     if let Some(pct) = parse_download_pct(&line) {
                         let _ = app.emit("download-progress", serde_json::json!({
                             "percent": pct, "stage": "downloading"
@@ -496,7 +499,7 @@ fn start_streaming(
     eprintln!("[sunder] audio ready: {} bytes at {}", file_len, expected_path.display());
 
     let file = std::fs::File::open(&expected_path)
-        .map_err(|e| crate::error::AppError::Io(e))?;
+        .map_err(crate::error::AppError::Io)?;
     let decoder = Decoder::new(io::BufReader::with_capacity(512 * 1024, file))
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
