@@ -5,7 +5,7 @@ mod extraction;
 mod ipc;
 pub mod models;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use audio::AudioHandle;
 use db::SearchCache;
@@ -23,6 +23,75 @@ pub fn run() {
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
             app.manage(AudioHandle::new(app.handle().clone()));
             app.manage(Extractor::new());
+
+            // System Tray Setup
+            use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+            use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
+
+            let play_pause = MenuItem::with_id(app, "play_pause", "Play / Pause", true, None::<&str>)?;
+            let next = MenuItem::with_id(app, "next", "Next Track", true, None::<&str>)?;
+            let prev = MenuItem::with_id(app, "prev", "Previous Track", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+            let restart = MenuItem::with_id(app, "restart", "Restart App", true, None::<&str>)?;
+            let exit = MenuItem::with_id(app, "exit", "Exit Sunder", true, None::<&str>)?;
+
+            let tray_menu = Menu::with_items(
+                app,
+                &[
+                    &play_pause,
+                    &next,
+                    &prev,
+                    &PredefinedMenuItem::separator(app)?,
+                    &show,
+                    &restart,
+                    &exit,
+                ],
+            )?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .on_menu_event(|app: &tauri::AppHandle, event| {
+                    match event.id.as_ref() {
+                        "play_pause" => {
+                            let _ = app.emit("media-toggle", ());
+                        }
+                        "next" => {
+                            let _ = app.emit("media-next", ());
+                        }
+                        "prev" => {
+                            let _ = app.emit("media-previous", ());
+                        }
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "restart" => {
+                            app.restart();
+                        }
+                        "exit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false) // This is key for Tauri v2 to prevent menu on left click
+                .build(app)?;
+
+            // Wayland Icon Fix & Window Decoration
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_icon(app.default_window_icon().unwrap().clone());
+            }
 
             Ok(())
         })
