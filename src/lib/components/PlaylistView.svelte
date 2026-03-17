@@ -149,8 +149,7 @@
 
   async function handlePlayAll() {
     if (detailTracks.length === 0) return;
-    player.clearQueue();
-    for (const t of detailTracks) player.addToQueue(t);
+    player.setQueue(detailTracks);
     const first = player.playFromQueue(0);
     if (first) await playTrack(first);
   }
@@ -159,8 +158,7 @@
     try {
       const tracks = await getPlaylistTracks(p.id);
       if (tracks.length === 0) return;
-      player.clearQueue();
-      for (const t of tracks) player.addToQueue(t);
+      player.setQueue(tracks);
       const first = player.playFromQueue(0);
       if (first) await playTrack(first);
     } catch (e) {
