@@ -213,8 +213,8 @@ pub async fn search_local(query: String, db: State<'_, SearchCache>) -> Result<V
 }
 
 #[tauri::command]
-pub async fn create_playlist(name: String, db: State<'_, SearchCache>) -> Result<Playlist, String> {
-    db.create_playlist(&name).map_err(|e| e.to_string())
+pub async fn create_playlist(name: String, thumbnail: Option<String>, db: State<'_, SearchCache>) -> Result<Playlist, String> {
+    db.create_playlist(&name, &thumbnail.unwrap_or_default()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -302,11 +302,10 @@ pub async fn get_subtitles(
 #[tauri::command]
 pub async fn import_yt_playlist(
     url: String,
-    playlist_name: String,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<Playlist, String> {
-    let (extracted_name, _playlist_thumbnail, tracks) = extractor
+    let (name, thumb_opt, tracks) = extractor
         .extract_playlist(&url)
         .await
         .map_err(|e| e.to_string())?;
@@ -315,13 +314,11 @@ pub async fn import_yt_playlist(
         return Err("No tracks found in playlist".into());
     }
 
-    let name = if playlist_name.trim().is_empty() {
-        extracted_name
-    } else {
-        playlist_name
-    };
+    let thumb = thumb_opt.unwrap_or_else(|| {
+        tracks.first().map(|t| t.thumbnail.clone()).unwrap_or_default()
+    });
 
-    let playlist = db.create_playlist(&name).map_err(|e| e.to_string())?;
+    let playlist = db.create_playlist(&name, &thumb).map_err(|e| e.to_string())?;
     let _ = db.upsert_tracks(&tracks);
     for track in tracks {
         let _ = db.add_to_playlist(playlist.id, &track.id);

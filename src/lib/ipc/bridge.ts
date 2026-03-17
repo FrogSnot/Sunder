@@ -12,8 +12,8 @@ export async function searchLocal(query: string): Promise<Track[]> {
   return invoke<Track[]>("search_local", { query });
 }
 
-export async function importYtPlaylist(url: string, playlistName: string): Promise<Playlist> {
-  return invoke<Playlist>("import_yt_playlist", { url, playlistName });
+export async function importYtPlaylist(url: string): Promise<Playlist> {
+  return invoke<Playlist>("import_yt_playlist", { url });
 }
 
 export async function playTrack(track: Track): Promise<void> {
@@ -90,8 +90,8 @@ export async function prefetchTrack(trackId: string): Promise<void> {
   await invoke("prefetch_track", { trackId });
 }
 
-export async function createPlaylist(name: string): Promise<Playlist> {
-  return invoke<Playlist>("create_playlist", { name });
+export async function createPlaylist(name: string, thumbnail?: string): Promise<Playlist> {
+  return invoke<Playlist>("create_playlist", { name, thumbnail });
 }
 
 export async function listPlaylists(): Promise<Playlist[]> {

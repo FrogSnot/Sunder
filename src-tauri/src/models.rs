@@ -28,5 +28,6 @@ pub enum SearchSource {
 pub struct Playlist {
     pub id: i64,
     pub name: String,
+    pub thumbnail: String,
     pub track_count: i64,
 }

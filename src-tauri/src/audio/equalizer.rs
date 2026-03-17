@@ -83,11 +83,14 @@ pub struct EqSource<S: Source<Item = f32>> {
     fade_samples: usize,
     silence_samples: usize,
     fade_counter: usize,
+    pending_seek: Arc<RwLock<Option<std::time::Duration>>>,
+    fade_out_counter: usize,
+    fade_out_samples: usize,
     needs_refresh: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<S: Source<Item = f32>> EqSource<S> {
-    pub fn new(inner: S, settings: Arc<RwLock<EqSettings>>) -> Self {
+    pub fn new(inner: S, settings: Arc<RwLock<EqSettings>>, pending_seek: Arc<RwLock<Option<std::time::Duration>>>) -> Self {
         let channels = inner.channels();
         let sample_rate = inner.sample_rate();
 
@@ -115,8 +118,15 @@ impl<S: Source<Item = f32>> EqSource<S> {
             fade_samples: (sample_rate as f32 * 0.10) as usize, // 100ms fade
             silence_samples: (sample_rate as f32 * 0.05) as usize, // 50ms absolute silence
             fade_counter: 0,
+            pending_seek,
+            fade_out_counter: 0,
+            fade_out_samples: (sample_rate as f32 * 0.02) as usize, // 20ms fade-out
             needs_refresh: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    pub fn trigger_seek(&self, pos: std::time::Duration) {
+        *self.pending_seek.write().unwrap() = Some(pos);
     }
 
     fn refresh(&mut self) {
@@ -137,8 +147,33 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        let sample = self.inner.next()?;
         let ch = self.channel_idx as usize;
+        
+        // Handle pending seek (Fade-out -> Seek -> Reset -> Fade-in)
+        if ch == 0 {
+            let mut perform_seek = None;
+            {
+                let mut seek_opt = self.pending_seek.write().unwrap();
+                if let Some(pos) = *seek_opt {
+                    if self.fade_out_counter < self.fade_out_samples {
+                        // Still fading out
+                        self.fade_out_counter += 1;
+                    } else {
+                        // Fade out finished, schedule perform seek
+                        perform_seek = Some(pos);
+                        *seek_opt = None;
+                    }
+                } else {
+                    self.fade_out_counter = 0;
+                }
+            }
+            if let Some(pos) = perform_seek {
+                let _ = self.try_seek(pos);
+                self.fade_out_counter = 0;
+            }
+        }
+
+        let sample = self.inner.next()?;
         self.channel_idx = (self.channel_idx + 1) % self.channels;
 
         if ch == 0 && self.needs_refresh.load(std::sync::atomic::Ordering::Relaxed) {
@@ -155,6 +190,12 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
         } else {
             sample
         };
+
+        // Apply fade-out gating if we are in a pending seek
+        if self.fade_out_counter > 0 {
+            let t = 1.0 - (self.fade_out_counter as f32 / self.fade_out_samples as f32);
+            out *= t * t; // Quadratic fade out
+        }
 
         // Silence + Fade-in logic (always active to prevent pops)
         if self.fade_counter < self.silence_samples {

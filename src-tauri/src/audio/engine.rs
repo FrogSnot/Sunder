@@ -29,7 +29,6 @@ pub enum AudioCommand {
     #[allow(dead_code)]
     UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
 }
-
 pub struct AudioHandle {
     tx: std::sync::mpsc::Sender<AudioCommand>,
     pub state: Arc<RwLock<PlaybackState>>,
@@ -39,6 +38,7 @@ pub struct AudioHandle {
     pub eq_settings: Arc<RwLock<EqSettings>>,
     #[allow(dead_code)]
     pub current_session: Arc<AtomicUsize>,
+    pub pending_seek: Arc<RwLock<Option<Duration>>>,
 }
 
 impl AudioHandle {
@@ -50,6 +50,7 @@ impl AudioHandle {
         let volume = Arc::new(RwLock::new(volume));
         let eq_settings = Arc::new(RwLock::new(eq));
         let current_session = Arc::new(AtomicUsize::new(0));
+        let pending_seek = Arc::new(RwLock::new(None));
 
         let handle = Self {
             tx: tx.clone(),
@@ -59,6 +60,7 @@ impl AudioHandle {
             volume: volume.clone(),
             eq_settings: eq_settings.clone(),
             current_session: current_session.clone(),
+            pending_seek: pending_seek.clone(),
         };
 
         let hwnd = Self::extract_hwnd(&app);
@@ -81,6 +83,7 @@ impl AudioHandle {
                     app_handle,
                     current_session_clone,
                     hwnd,
+                    pending_seek,
                 );
             })
             .expect("failed to spawn audio thread");
@@ -125,6 +128,7 @@ fn audio_thread(
     app: tauri::AppHandle,
     current_session: Arc<AtomicUsize>,
     hwnd: Option<RawHwnd>,
+    pending_seek: Arc<RwLock<Option<Duration>>>,
 ) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
         Ok(s) => s,
@@ -228,6 +232,7 @@ fn audio_thread(
                     let tx_clone = tx.clone();
                     let video_id_clone = video_id.clone();
                     let session_clone = current_session.clone();
+                    let pending_seek_clone = pending_seek.clone();
 
                     std::thread::spawn(move || {
                         // Early exit if session was already superseded (rapid skip)
@@ -235,7 +240,7 @@ fn audio_thread(
                             return;
                         }
                         let vol = *volume_clone.read().unwrap();
-                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone, session_id, &session_clone) {
+                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone, session_id, &session_clone, &pending_seek_clone) {
                             Ok(new_sink) => {
                                 let _ = tx_clone.send(AudioCommand::Prepared {
                                     session_id,
@@ -301,33 +306,9 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Seek(secs) => {
-                    if let (Some(ref id), Some(s)) = (current_video_id.as_ref(), sink.take()) {
-                        let d = Duration::from_secs_f64(secs.max(0.0));
-                        s.stop();
-                        drop(s);
-                        
-                        // Recreate sink to guarantee absolute buffer flush from old samples
-                        match start_streaming(
-                            id, 
-                            &state, 
-                            &stream_handle, 
-                            *volume.read().unwrap(), 
-                            &eq_settings, 
-                            &app, 
-                            current_session.load(Ordering::SeqCst), 
-                            &current_session
-                        ) {
-                            Ok(new_sink) => {
-                                let _ = new_sink.try_seek(d);
-                                sink = Some(new_sink);
-                                *state.write().unwrap() = PlaybackState::Playing;
-                                position_ms.store((secs * 1000.0) as u64, Ordering::Release);
-                            }
-                            Err(e) => {
-                                eprintln!("[sunder] seek recovery failed: {}", e);
-                            }
-                        }
-                    }
+                    let d = Duration::from_secs_f64(secs.max(0.0));
+                    *pending_seek.write().unwrap() = Some(d);
+                    position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
                     if let Some(ref mut c) = controls {
@@ -426,6 +407,7 @@ fn start_streaming(
     app: &tauri::AppHandle,
     session_id: usize,
     current_session: &Arc<AtomicUsize>,
+    pending_seek: &Arc<RwLock<Option<Duration>>>,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -561,7 +543,8 @@ fn start_streaming(
     let sink = Sink::try_new(stream_handle)
         .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
-    sink.append(EqSource::new(decoder.convert_samples(), eq_settings.clone()));
+    let source = EqSource::new(decoder.convert_samples(), eq_settings.clone(), pending_seek.clone());
+    sink.append(source);
 
     Ok(sink)
 }

@@ -22,6 +22,7 @@ export interface PlaybackProgress {
 export interface Playlist {
   id: number;
   name: string;
+  thumbnail: string;
   track_count: number;
 }
 
