@@ -1,9 +1,8 @@
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, RwLock};
-
-use rodio::Source;
+use rodio::{Sample, Source};
 
 pub const BAND_COUNT: usize = 10;
-
 const BAND_FREQUENCIES: [f32; BAND_COUNT] = [
     32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 ];
@@ -19,6 +18,31 @@ pub struct EqSettings {
 impl Default for EqSettings {
     fn default() -> Self {
         Self { enabled: false, gains: [0.0; BAND_COUNT] }
+    }
+}
+
+pub trait EqSample: Sample + Send + Sync + 'static {
+    fn to_f32_sample(self) -> f32;
+}
+
+impl EqSample for i16 {
+    #[inline]
+    fn to_f32_sample(self) -> f32 {
+        self as f32 / 32768.0
+    }
+}
+
+impl EqSample for f32 {
+    #[inline]
+    fn to_f32_sample(self) -> f32 {
+        self
+    }
+}
+
+impl EqSample for u16 {
+    #[inline]
+    fn to_f32_sample(self) -> f32 {
+        (self as f32 - 32768.0) / 32768.0
     }
 }
 
@@ -70,7 +94,10 @@ fn peaking_eq(freq: f32, gain_db: f32, q: f32, sr: f32) -> BiquadCoeffs {
     }
 }
 
-pub struct EqSource<S: Source<Item = f32>> {
+pub struct EqSource<S: Source>
+where
+    S::Item: EqSample,
+{
     inner: S,
     settings: Arc<RwLock<EqSettings>>,
     states: Vec<Vec<BiquadState>>,
@@ -83,14 +110,21 @@ pub struct EqSource<S: Source<Item = f32>> {
     fade_samples: usize,
     silence_samples: usize,
     fade_counter: usize,
-    pending_seek: Arc<RwLock<Option<std::time::Duration>>>,
+    pending_seek: Arc<AtomicI64>,
     fade_out_counter: usize,
     fade_out_samples: usize,
-    needs_refresh: Arc<std::sync::atomic::AtomicBool>,
+    needs_refresh: Arc<AtomicBool>,
 }
 
-impl<S: Source<Item = f32>> EqSource<S> {
-    pub fn new(inner: S, settings: Arc<RwLock<EqSettings>>, pending_seek: Arc<RwLock<Option<std::time::Duration>>>) -> Self {
+impl<S: Source> EqSource<S>
+where
+    S::Item: EqSample,
+{
+    pub fn new(
+        inner: S,
+        settings: Arc<RwLock<EqSettings>>,
+        pending_seek: Arc<AtomicI64>,
+    ) -> Self {
         let channels = inner.channels();
         let sample_rate = inner.sample_rate();
 
@@ -121,12 +155,8 @@ impl<S: Source<Item = f32>> EqSource<S> {
             pending_seek,
             fade_out_counter: 0,
             fade_out_samples: (sample_rate as f32 * 0.02) as usize, // 20ms fade-out
-            needs_refresh: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            needs_refresh: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    pub fn trigger_seek(&self, pos: std::time::Duration) {
-        *self.pending_seek.write().unwrap() = Some(pos);
     }
 
     fn refresh(&mut self) {
@@ -143,42 +173,42 @@ impl<S: Source<Item = f32>> EqSource<S> {
     }
 }
 
-impl<S: Source<Item = f32>> Iterator for EqSource<S> {
+impl<S: Source> Iterator for EqSource<S>
+where
+    S::Item: EqSample,
+{
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
         let ch = self.channel_idx as usize;
-        
+
         // Handle pending seek (Fade-out -> Seek -> Reset -> Fade-in)
         if ch == 0 {
-            let mut perform_seek = None;
-            {
-                let mut seek_opt = self.pending_seek.write().unwrap();
-                if let Some(pos) = *seek_opt {
-                    if self.fade_out_counter < self.fade_out_samples {
-                        // Still fading out
-                        self.fade_out_counter += 1;
-                    } else {
-                        // Fade out finished, schedule perform seek
-                        perform_seek = Some(pos);
-                        *seek_opt = None;
-                    }
+            let ms = self.pending_seek.load(Ordering::Acquire);
+            if ms >= 0 {
+                if self.fade_out_counter < self.fade_out_samples {
+                    // Still fading out
+                    self.fade_out_counter += 1;
                 } else {
+                    // Fade out finished, perform actual seek
+                    let pos = std::time::Duration::from_millis(ms as u64);
+                    let _ = self.try_seek(pos);
+                    // Reset Atomic to -1 after handling
+                    self.pending_seek.store(-1, Ordering::Release);
                     self.fade_out_counter = 0;
                 }
-            }
-            if let Some(pos) = perform_seek {
-                let _ = self.try_seek(pos);
+            } else {
                 self.fade_out_counter = 0;
             }
         }
 
-        let sample = self.inner.next()?;
+        let sample_raw = self.inner.next()?;
+        let sample = sample_raw.to_f32_sample();
         self.channel_idx = (self.channel_idx + 1) % self.channels;
 
-        if ch == 0 && self.needs_refresh.load(std::sync::atomic::Ordering::Relaxed) {
+        if ch == 0 && self.needs_refresh.load(Ordering::Relaxed) {
             self.refresh();
-            self.needs_refresh.store(false, std::sync::atomic::Ordering::Relaxed);
+            self.needs_refresh.store(false, Ordering::Relaxed);
         }
 
         let mut out = if self.enabled {
@@ -205,7 +235,7 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
             }
         } else if self.fade_counter < (self.silence_samples + self.fade_samples) {
             let t = (self.fade_counter - self.silence_samples) as f32 / self.fade_samples as f32;
-            let gain = t * t * t; 
+            let gain = t * t * t;
             out *= gain;
             if ch == (self.channels - 1) as usize {
                 self.fade_counter += 1;
@@ -216,7 +246,10 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
     }
 }
 
-impl<S: Source<Item = f32>> Source for EqSource<S> {
+impl<S: Source> Source for EqSource<S>
+where
+    S::Item: EqSample,
+{
     fn current_frame_len(&self) -> Option<usize> {
         self.inner.current_frame_len()
     }

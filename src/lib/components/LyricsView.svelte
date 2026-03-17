@@ -84,7 +84,7 @@
     position: fixed;
     right: 0;
     top: 0;
-    bottom: 0;
+    bottom: var(--player-height);
     width: 340px;
     background: var(--bg-surface);
     border-left: 1px solid var(--bg-overlay);

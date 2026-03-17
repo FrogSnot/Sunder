@@ -1,11 +1,11 @@
 use std::ffi::c_void;
 use std::io::{self, BufRead, Read};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering, AtomicI64};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, OutputStream, Sink};
 use tauri::{Emitter, Manager};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 
@@ -38,7 +38,7 @@ pub struct AudioHandle {
     pub eq_settings: Arc<RwLock<EqSettings>>,
     #[allow(dead_code)]
     pub current_session: Arc<AtomicUsize>,
-    pub pending_seek: Arc<RwLock<Option<Duration>>>,
+    pub pending_seek: Arc<AtomicI64>,
 }
 
 impl AudioHandle {
@@ -50,7 +50,7 @@ impl AudioHandle {
         let volume = Arc::new(RwLock::new(volume));
         let eq_settings = Arc::new(RwLock::new(eq));
         let current_session = Arc::new(AtomicUsize::new(0));
-        let pending_seek = Arc::new(RwLock::new(None));
+        let pending_seek = Arc::new(AtomicI64::new(-1));
 
         let handle = Self {
             tx: tx.clone(),
@@ -128,7 +128,7 @@ fn audio_thread(
     app: tauri::AppHandle,
     current_session: Arc<AtomicUsize>,
     hwnd: Option<RawHwnd>,
-    pending_seek: Arc<RwLock<Option<Duration>>>,
+    pending_seek: Arc<AtomicI64>,
 ) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
         Ok(s) => s,
@@ -197,7 +197,7 @@ fn audio_thread(
 
     let mut last_mpris_state: Option<PlaybackState> = None;
     let mut last_mpris_pos: u64 = 0;
-    let mut current_video_id: Option<String> = None;
+    let mut _current_video_id: Option<String> = None;
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(50));
@@ -218,7 +218,7 @@ fn audio_thread(
             match cmd {
                 AudioCommand::Play { video_id, duration_ms: dur } => {
                     let session_id = current_session.fetch_add(1, Ordering::SeqCst) + 1;
-                    current_video_id = Some(video_id.clone());
+                    _current_video_id = Some(video_id.clone());
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
@@ -306,9 +306,9 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Seek(secs) => {
-                    let d = Duration::from_secs_f64(secs.max(0.0));
-                    *pending_seek.write().unwrap() = Some(d);
-                    position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                    let ms = (secs * 1000.0) as i64;
+                    pending_seek.store(ms, Ordering::Release);
+                    position_ms.store(ms.max(0) as u64, Ordering::Release);
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
                     if let Some(ref mut c) = controls {
@@ -407,7 +407,7 @@ fn start_streaming(
     app: &tauri::AppHandle,
     session_id: usize,
     current_session: &Arc<AtomicUsize>,
-    pending_seek: &Arc<RwLock<Option<Duration>>>,
+    pending_seek: &Arc<AtomicI64>,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -543,7 +543,8 @@ fn start_streaming(
     let sink = Sink::try_new(stream_handle)
         .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
-    let source = EqSource::new(decoder.convert_samples(), eq_settings.clone(), pending_seek.clone());
+    
+    let source = EqSource::new(decoder, eq_settings.clone(), pending_seek.clone());
     sink.append(source);
 
     Ok(sink)
