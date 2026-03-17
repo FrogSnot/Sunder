@@ -301,7 +301,7 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Seek(secs) => {
-                    if let (Some(ref id), Some(mut s)) = (current_video_id.as_ref(), sink.take()) {
+                    if let (Some(ref id), Some(s)) = (current_video_id.as_ref(), sink.take()) {
                         let d = Duration::from_secs_f64(secs.max(0.0));
                         s.stop();
                         drop(s);
@@ -317,7 +317,7 @@ fn audio_thread(
                             current_session.load(Ordering::SeqCst), 
                             &current_session
                         ) {
-                            Ok(mut new_sink) => {
+                            Ok(new_sink) => {
                                 let _ = new_sink.try_seek(d);
                                 sink = Some(new_sink);
                                 *state.write().unwrap() = PlaybackState::Playing;
