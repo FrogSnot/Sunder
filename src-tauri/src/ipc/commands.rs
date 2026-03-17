@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
-use tauri::State;
+use tauri::{State, Manager};
 
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
@@ -37,22 +37,88 @@ pub async fn play_track(
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<(), String> {
-    // Look up duration from DB by primary key (instant).
-    // Only fall back to yt-dlp metadata if the track was never seen before.
-    let duration_ms = match db.get_track_by_id(&track_id) {
-        Ok(Some(t)) => (t.duration_secs * 1000.0) as u64,
+    let (duration_ms, title, artist, thumbnail_url) = match db.get_track_by_id(&track_id) {
+        Ok(Some(t)) => ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail)),
         _ => {
             match extractor.metadata(&track_id).await {
                 Ok(t) => {
                     let _ = db.upsert_tracks(&[t.clone()]);
-                    (t.duration_secs * 1000.0) as u64
+                    ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail))
                 }
-                Err(_) => 0,
+                Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string(), None),
             }
         }
     };
 
     audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
+    
+    // Feature: Visual Notifications
+    let app_clone = audio.app_handle().clone();
+    let track_id_clone = track_id.clone();
+    let title_clone: String = title.clone();
+    let artist_clone: String = artist.clone();
+    let audio_sender = audio.tx().clone();
+    
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_notification::NotificationExt;
+        let mut thumb_square = None;
+
+        if let Some(url) = thumbnail_url {
+            if let Ok(cache_dir) = app_clone.path().app_cache_dir() {
+                let thumb_orig = cache_dir.join(format!("{}.jpg", track_id_clone));
+                let thumb_square_path = cache_dir.join(format!("{}_square.jpg", track_id_clone));
+
+                // Download if not exists
+                if !thumb_orig.exists() {
+                    if let Ok(resp) = reqwest::get(url).await {
+                        if let Ok(bytes) = resp.bytes().await {
+                            let _ = std::fs::write(&thumb_orig, bytes);
+                        }
+                    }
+                }
+
+                if thumb_orig.exists() {
+                    let _ = tokio::process::Command::new("ffmpeg")
+                        .args([
+                            "-i", thumb_orig.to_str().unwrap_or_default(),
+                            "-vf", "scale=512:512:force_original_aspect_ratio=increase,crop=512:512",
+                            "-y", thumb_square_path.to_str().unwrap_or_default()
+                        ])
+                        .status()
+                        .await;
+                    
+                    if thumb_square_path.exists() {
+                        if let Ok(bytes) = std::fs::read(&thumb_square_path) {
+                            thumb_square = Some(bytes);
+                        }
+                    }
+                }
+
+                let mut builder = app_clone.notification().builder()
+                    .title(&title_clone)
+                    .body(&artist_clone);
+
+                if thumb_square_path.exists() {
+                    if let Some(path_str) = thumb_square_path.to_str() {
+                        builder = builder.icon(format!("file://{}", path_str));
+                    }
+                }
+                let _ = builder.show();
+            }
+        } else {
+            let _ = app_clone.notification().builder()
+                .title(&title_clone)
+                .body(&artist_clone)
+                .show();
+        }
+
+        let _ = audio_sender.send(AudioCommand::UpdateMetadata { 
+            title: title_clone, 
+            artist: artist_clone, 
+            thumbnail: thumb_square 
+        });
+    });
+
     let _ = db.record_listen(&track_id);
     Ok(())
 }

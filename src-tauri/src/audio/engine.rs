@@ -17,6 +17,7 @@ pub enum AudioCommand {
     Stop,
     SetVolume(f32),
     Seek(f64),
+    UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
 }
 
 pub struct AudioHandle {
@@ -26,6 +27,7 @@ pub struct AudioHandle {
     pub duration_ms: Arc<AtomicU64>,
     pub volume: Arc<RwLock<f32>>,
     pub eq_settings: Arc<RwLock<EqSettings>>,
+    app: tauri::AppHandle,
 }
 
 impl AudioHandle {
@@ -44,6 +46,7 @@ impl AudioHandle {
             duration_ms: duration_ms.clone(),
             volume: volume.clone(),
             eq_settings: eq_settings.clone(),
+            app: app.clone(),
         };
 
         std::thread::Builder::new()
@@ -58,6 +61,14 @@ impl AudioHandle {
 
     pub fn send(&self, cmd: AudioCommand) {
         let _ = self.tx.send(cmd);
+    }
+
+    pub fn tx(&self) -> &std::sync::mpsc::Sender<AudioCommand> {
+        &self.tx
+    }
+
+    pub fn app_handle(&self) -> &tauri::AppHandle {
+        &self.app
     }
 }
 
@@ -166,6 +177,9 @@ fn audio_thread(
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                         }
                     }
+                }
+                AudioCommand::UpdateMetadata { .. } => {
+                    // Handled elsewhere or no-op without MPRIS
                 }
             }
         }
