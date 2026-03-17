@@ -19,6 +19,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-isomp4", "symphonia-aac", "symphonia-vorbis", "symphonia-flac", "symphonia-wav"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
+regex-lite = "0.1"
+serde_json = "1"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte";
+import { lyricsState, parseLrc } from "../state/lyrics.svelte";
 
 export async function search(query: string): Promise<SearchResult> {
   return invoke<SearchResult>("search", { query });
@@ -28,6 +29,7 @@ export async function playTrack(track: Track): Promise<void> {
   }
   player.prefetchAhead(player.queueIndex);
   await invoke("play_track", { trackId: track.id });
+  fetchLyrics(track.id, track.artist, track.title, track.duration_secs);
 }
 
 let advancing = false;
@@ -169,4 +171,105 @@ export function initProgressListener(): () => void {
     unlistenFinished?.();
     unlistenError?.();
   };
+}
+
+export async function fetchLyrics(trackId: string, artist: string, title: string, durationSecs?: number) {
+  if (lyricsState.trackId === trackId && !lyricsState.error) return;
+  lyricsState.reset();
+  lyricsState.trackId = trackId;
+  lyricsState.loading = true;
+
+  try {
+    const { cleanArtist, cleanTitle } = cleanForSearch(artist, title);
+
+    if (await tryLrclib(cleanArtist, cleanTitle, durationSecs)) return;
+    if (cleanTitle !== title && await tryLrclib(artist, title, durationSecs)) return;
+    if (durationSecs && await tryLrclib(cleanArtist, cleanTitle)) return;
+    if (await tryLrclibQuery(`${cleanArtist} ${cleanTitle}`)) return;
+    if (await tryLrclibQuery(cleanTitle)) return;
+    if (await tryLyricsOvh(cleanArtist, cleanTitle)) return;
+    if (cleanTitle !== title && await tryLyricsOvh(artist, title)) return;
+
+    try {
+      const subs = await invoke<string>("get_subtitles", { videoId: trackId, lang: "en" });
+      if (subs && subs.trim().length > 20) {
+        lyricsState.content = subs;
+        lyricsState.source = "YouTube";
+        return;
+      }
+    } catch { /* no subtitles */ }
+
+    lyricsState.error = "Lyrics not found.";
+  } catch {
+    lyricsState.error = "Failed to fetch lyrics.";
+  } finally {
+    lyricsState.loading = false;
+  }
+}
+
+async function tryLrclib(artist: string, title: string, duration?: number): Promise<boolean> {
+  try {
+    let url = `https://lrclib.net/api/get?artist=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
+    if (duration) url += `&duration=${Math.round(duration)}`;
+    const res = await fetch(url);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.syncedLyrics) {
+      lyricsState.syncedLines = parseLrc(data.syncedLyrics);
+      lyricsState.synced = true;
+      lyricsState.content = data.plainLyrics || "";
+      lyricsState.source = "LRCLIB";
+      return true;
+    } else if (data.plainLyrics) {
+      lyricsState.content = data.plainLyrics;
+      lyricsState.synced = false;
+      lyricsState.source = "LRCLIB";
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+async function tryLrclibQuery(query: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.length > 0) {
+      const first = data[0];
+      if (first.syncedLyrics) {
+        lyricsState.syncedLines = parseLrc(first.syncedLyrics);
+        lyricsState.synced = true;
+        lyricsState.content = first.plainLyrics || "";
+        lyricsState.source = "LRCLIB (Search)";
+        return true;
+      } else if (first.plainLyrics) {
+        lyricsState.content = first.plainLyrics;
+        lyricsState.source = "LRCLIB (Search)";
+        return true;
+      }
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+async function tryLyricsOvh(artist: string, title: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.lyrics) {
+      lyricsState.content = data.lyrics;
+      lyricsState.source = "Lyrics.ovh";
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function cleanForSearch(artist: string, title: string) {
+  let cleanTitle = title.replace(/\(.*\)|\[.*\]/g, "").trim();
+  cleanTitle = cleanTitle.replace(/Official Video|Official Audio|Music Video|LYRICS/gi, "").trim();
+  const cleanArtist = artist.replace(/ - Topic$/i, "").trim();
+  return { cleanArtist, cleanTitle };
 }

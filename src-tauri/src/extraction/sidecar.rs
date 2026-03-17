@@ -88,6 +88,61 @@ impl Extractor {
             stream_url: None,
         })
     }
+
+    pub async fn get_subtitles(&self, video_id: &str, lang: &str) -> Result<String, AppError> {
+        let tmp = std::env::temp_dir();
+        let output = Command::new(&self.bin)
+            .args([
+                &format!("https://www.youtube.com/watch?v={video_id}"),
+                "--skip-download",
+                "--write-subs",
+                "--sub-langs",
+                lang,
+                "--sub-format",
+                "vtt",
+                "-o",
+                &tmp.join(video_id).to_string_lossy(),
+                "--no-warnings",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| AppError::Extraction(format!("failed to run yt-dlp: {e}")))?;
+
+        if !output.status.success() {
+            return Err(AppError::Extraction("failed to fetch subtitles".into()));
+        }
+
+        let vtt_path = tmp.join(format!("{video_id}.{lang}.vtt"));
+        if !vtt_path.exists() {
+            return Err(AppError::Extraction(format!("no {lang} subtitles found")));
+        }
+
+        let content = std::fs::read_to_string(&vtt_path)
+            .map_err(|e| AppError::Extraction(format!("failed to read subtitles: {e}")))?;
+        let _ = std::fs::remove_file(&vtt_path);
+
+        // Parse VTT: extract text lines, skip timestamps and metadata
+        let re_tags = regex_lite::Regex::new(r"<[^>]+>").unwrap();
+        let lyrics = content
+            .lines()
+            .filter(|l| {
+                let l = l.trim();
+                !l.is_empty()
+                    && !l.starts_with("WEBVTT")
+                    && !l.starts_with("Kind:")
+                    && !l.starts_with("Language:")
+                    && !l.starts_with("NOTE")
+                    && !l.contains(" --> ")
+                    && l.parse::<u32>().is_err()
+            })
+            .map(|l| re_tags.replace_all(l, "").to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(lyrics)
+    }
 }
 
 fn best_thumbnail(v: &serde_json::Value) -> String {
