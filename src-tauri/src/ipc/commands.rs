@@ -57,12 +57,10 @@ pub async fn play_track(
     let track_id_clone = track_id.clone();
     let title_clone: String = title.clone();
     let artist_clone: String = artist.clone();
-    let audio_sender = audio.tx().clone();
     
     tauri::async_runtime::spawn(async move {
         use tauri_plugin_notification::NotificationExt;
-        let mut thumb_square = None;
-
+        
         if let Some(url) = thumbnail_url {
             if let Ok(cache_dir) = app_clone.path().app_cache_dir() {
                 let thumb_orig = cache_dir.join(format!("{}.jpg", track_id_clone));
@@ -86,12 +84,6 @@ pub async fn play_track(
                         ])
                         .status()
                         .await;
-                    
-                    if thumb_square_path.exists() {
-                        if let Ok(bytes) = std::fs::read(&thumb_square_path) {
-                            thumb_square = Some(bytes);
-                        }
-                    }
                 }
 
                 let mut builder = app_clone.notification().builder()
@@ -111,12 +103,6 @@ pub async fn play_track(
                 .body(&artist_clone)
                 .show();
         }
-
-        let _ = audio_sender.send(AudioCommand::UpdateMetadata { 
-            title: title_clone, 
-            artist: artist_clone, 
-            thumbnail: thumb_square 
-        });
     });
 
     let _ = db.record_listen(&track_id);

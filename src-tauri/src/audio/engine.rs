@@ -17,7 +17,6 @@ pub enum AudioCommand {
     Stop,
     SetVolume(f32),
     Seek(f64),
-    UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
 }
 
 pub struct AudioHandle {
@@ -177,9 +176,6 @@ fn audio_thread(
                             position_ms.store((secs * 1000.0) as u64, Ordering::Release);
                         }
                     }
-                }
-                AudioCommand::UpdateMetadata { .. } => {
-                    // Handled elsewhere or no-op without MPRIS
                 }
             }
         }
