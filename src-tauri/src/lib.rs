@@ -6,11 +6,11 @@ mod extraction;
 mod ipc;
 pub mod models;
 
-use tauri::{Emitter, Manager};
 use crate::config::ConfigManager;
 use audio::AudioHandle;
 use db::SearchCache;
 use extraction::Extractor;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,9 +44,10 @@ pub fn run() {
 
             // System Tray Setup
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-            use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
+            use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 
-            let play_pause = MenuItem::with_id(app, "play_pause", "Play / Pause", true, None::<&str>)?;
+            let play_pause =
+                MenuItem::with_id(app, "play_pause", "Play / Pause", true, None::<&str>)?;
             let next = MenuItem::with_id(app, "next", "Next Track", true, None::<&str>)?;
             let prev = MenuItem::with_id(app, "prev", "Previous Track", true, None::<&str>)?;
             let show = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
@@ -71,9 +72,9 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     let id = event.id().0.as_str();
                     eprintln!("[sunder] tray menu event: {}", id);
-                    
+
                     let window = app.get_webview_window("main");
-                    
+
                     match id {
                         "play_pause" => {
                             if let Some(w) = window {
@@ -106,7 +107,11 @@ pub fn run() {
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();

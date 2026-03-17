@@ -21,9 +21,12 @@ fn main() {
         .args([
             &url,
             "--extract-audio",
-            "--audio-format", "mp3",
-            "--audio-quality", "2",
-            "-o", out_template.to_str().unwrap(),
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "2",
+            "-o",
+            out_template.to_str().unwrap(),
             "--no-playlist",
             "--no-warnings",
             "--no-progress",
@@ -34,7 +37,11 @@ fn main() {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("[test] FAIL: yt-dlp exited {}: {}", output.status, stderr.trim());
+        eprintln!(
+            "[test] FAIL: yt-dlp exited {}: {}",
+            output.status,
+            stderr.trim()
+        );
         return;
     }
 

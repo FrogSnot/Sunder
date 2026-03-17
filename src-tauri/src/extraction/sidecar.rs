@@ -43,7 +43,8 @@ impl Extractor {
                 Some(Track {
                     id: v["id"].as_str()?.to_string(),
                     title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-                    artist: v["channel"].as_str()
+                    artist: v["channel"]
+                        .as_str()
                         .or_else(|| v["uploader"].as_str())
                         .unwrap_or("Unknown")
                         .to_string(),
@@ -85,7 +86,8 @@ impl Extractor {
                 Some(Track {
                     id: v["id"].as_str()?.to_string(),
                     title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-                    artist: v["channel"].as_str()
+                    artist: v["channel"]
+                        .as_str()
                         .or_else(|| v["uploader"].as_str())
                         .unwrap_or("Unknown")
                         .to_string(),
@@ -120,7 +122,8 @@ impl Extractor {
         Ok(Track {
             id: v["id"].as_str().unwrap_or(video_id).to_string(),
             title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-            artist: v["channel"].as_str()
+            artist: v["channel"]
+                .as_str()
                 .or_else(|| v["uploader"].as_str())
                 .unwrap_or("Unknown")
                 .to_string(),
@@ -226,7 +229,8 @@ impl Extractor {
                 if let Some(track) = v["id"].as_str().map(|id| Track {
                     id: id.to_string(),
                     title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-                    artist: v["channel"].as_str()
+                    artist: v["channel"]
+                        .as_str()
                         .or_else(|| v["uploader"].as_str())
                         .unwrap_or("Unknown")
                         .to_string(),

@@ -1,6 +1,6 @@
-use tauri::State;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
+use tauri::State;
 
 use crate::config::{AppConfig, ConfigManager};
 
@@ -14,9 +14,9 @@ pub fn set_config(config: AppConfig, manager: State<'_, ConfigManager>) {
     manager.update(config);
 }
 
-use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
 use crate::audio::equalizer::BAND_COUNT;
+use crate::audio::AudioHandle;
 use crate::db::SearchCache;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
@@ -30,7 +30,10 @@ pub async fn search(
     let limit = 10;
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
     if !local.is_empty() {
-        return Ok(SearchResult { tracks: local, source: SearchSource::Local });
+        return Ok(SearchResult {
+            tracks: local,
+            source: SearchSource::Local,
+        });
     }
 
     // Search both YT Music and YouTube, merge results
@@ -75,7 +78,10 @@ pub async fn search(
 
     let _ = db.upsert_tracks(&tracks);
 
-    Ok(SearchResult { tracks, source: SearchSource::Remote })
+    Ok(SearchResult {
+        tracks,
+        source: SearchSource::Remote,
+    })
 }
 
 #[tauri::command]
@@ -88,20 +94,35 @@ pub async fn play_track(
     // Look up duration from DB by primary key (instant).
     // Only fall back to yt-dlp metadata if the track was never seen before.
     let (duration_ms, title, artist, thumbnail_url) = match db.get_track_by_id(&track_id) {
-        Ok(Some(t)) => ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail)),
-        _ => {
-            match extractor.metadata(&track_id).await {
-                Ok(t) => {
-                    let _ = db.upsert_tracks(std::slice::from_ref(&t));
-                    ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail))
-                }
-                Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string(), None),
+        Ok(Some(t)) => (
+            (t.duration_secs * 1000.0) as u64,
+            t.title,
+            t.artist,
+            Some(t.thumbnail),
+        ),
+        _ => match extractor.metadata(&track_id).await {
+            Ok(t) => {
+                let _ = db.upsert_tracks(std::slice::from_ref(&t));
+                (
+                    (t.duration_secs * 1000.0) as u64,
+                    t.title,
+                    t.artist,
+                    Some(t.thumbnail),
+                )
             }
-        }
+            Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string(), None),
+        },
     };
 
-    audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
-    audio.send(AudioCommand::UpdateMetadata { title, artist, thumbnail_url });
+    audio.send(AudioCommand::Play {
+        video_id: track_id.clone(),
+        duration_ms,
+    });
+    audio.send(AudioCommand::UpdateMetadata {
+        title,
+        artist,
+        thumbnail_url,
+    });
     let _ = db.record_listen(&track_id);
     Ok(())
 }
@@ -147,7 +168,9 @@ pub async fn seek(position_secs: f64, audio: State<'_, AudioHandle>) -> Result<(
 }
 
 #[tauri::command]
-pub async fn get_playback_state(audio: State<'_, AudioHandle>) -> Result<serde_json::Value, String> {
+pub async fn get_playback_state(
+    audio: State<'_, AudioHandle>,
+) -> Result<serde_json::Value, String> {
     let state = audio.state.read().unwrap().clone();
     let pos = audio.position_ms.load(Ordering::Relaxed);
     let dur = audio.duration_ms.load(Ordering::Relaxed);
@@ -213,8 +236,13 @@ pub async fn search_local(query: String, db: State<'_, SearchCache>) -> Result<V
 }
 
 #[tauri::command]
-pub async fn create_playlist(name: String, thumbnail: Option<String>, db: State<'_, SearchCache>) -> Result<Playlist, String> {
-    db.create_playlist(&name, &thumbnail.unwrap_or_default()).map_err(|e| e.to_string())
+pub async fn create_playlist(
+    name: String,
+    thumbnail: Option<String>,
+    db: State<'_, SearchCache>,
+) -> Result<Playlist, String> {
+    db.create_playlist(&name, &thumbnail.unwrap_or_default())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -228,39 +256,65 @@ pub async fn delete_playlist(playlist_id: i64, db: State<'_, SearchCache>) -> Re
 }
 
 #[tauri::command]
-pub async fn rename_playlist(playlist_id: i64, name: String, db: State<'_, SearchCache>) -> Result<(), String> {
-    db.rename_playlist(playlist_id, &name).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn add_to_playlist(playlist_id: i64, track_id: String, db: State<'_, SearchCache>) -> Result<(), String> {
-    db.add_to_playlist(playlist_id, &track_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn remove_from_playlist(playlist_id: i64, track_id: String, db: State<'_, SearchCache>) -> Result<(), String> {
-    db.remove_from_playlist(playlist_id, &track_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn playlists_containing_track(track_id: String, db: State<'_, SearchCache>) -> Result<Vec<i64>, String> {
-    db.playlists_containing_track(&track_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_playlist_tracks(playlist_id: i64, db: State<'_, SearchCache>) -> Result<Vec<Track>, String> {
-    db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn reorder_playlist_tracks(playlist_id: i64, track_ids: Vec<String>, db: State<'_, SearchCache>) -> Result<(), String> {
-    db.reorder_playlist_tracks(playlist_id, &track_ids).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn prefetch_track(
-    track_id: String,
+pub async fn rename_playlist(
+    playlist_id: i64,
+    name: String,
+    db: State<'_, SearchCache>,
 ) -> Result<(), String> {
+    db.rename_playlist(playlist_id, &name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn add_to_playlist(
+    playlist_id: i64,
+    track_id: String,
+    db: State<'_, SearchCache>,
+) -> Result<(), String> {
+    db.add_to_playlist(playlist_id, &track_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_from_playlist(
+    playlist_id: i64,
+    track_id: String,
+    db: State<'_, SearchCache>,
+) -> Result<(), String> {
+    db.remove_from_playlist(playlist_id, &track_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn playlists_containing_track(
+    track_id: String,
+    db: State<'_, SearchCache>,
+) -> Result<Vec<i64>, String> {
+    db.playlists_containing_track(&track_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_playlist_tracks(
+    playlist_id: i64,
+    db: State<'_, SearchCache>,
+) -> Result<Vec<Track>, String> {
+    db.get_playlist_tracks(playlist_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn reorder_playlist_tracks(
+    playlist_id: i64,
+    track_ids: Vec<String>,
+    db: State<'_, SearchCache>,
+) -> Result<(), String> {
+    db.reorder_playlist_tracks(playlist_id, &track_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn prefetch_track(track_id: String) -> Result<(), String> {
     let cache_dir = std::env::temp_dir().join("sunder");
     let _ = std::fs::create_dir_all(&cache_dir);
     let expected_path = cache_dir.join(format!("{track_id}.mp3"));
@@ -275,9 +329,12 @@ pub async fn prefetch_track(
             .args([
                 &url,
                 "--extract-audio",
-                "--audio-format", "mp3",
-                "--audio-quality", "2",
-                "-o", out_template.to_str().unwrap_or_default(),
+                "--audio-format",
+                "mp3",
+                "--audio-quality",
+                "2",
+                "-o",
+                out_template.to_str().unwrap_or_default(),
                 "--no-playlist",
                 "-q",
             ])
@@ -296,7 +353,10 @@ pub async fn get_subtitles(
     lang: String,
     extractor: State<'_, Extractor>,
 ) -> Result<String, String> {
-    extractor.get_subtitles(&video_id, &lang).await.map_err(|e| e.to_string())
+    extractor
+        .get_subtitles(&video_id, &lang)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -315,10 +375,15 @@ pub async fn import_yt_playlist(
     }
 
     let thumb = thumb_opt.unwrap_or_else(|| {
-        tracks.first().map(|t| t.thumbnail.clone()).unwrap_or_default()
+        tracks
+            .first()
+            .map(|t| t.thumbnail.clone())
+            .unwrap_or_default()
     });
 
-    let playlist = db.create_playlist(&name, &thumb).map_err(|e| e.to_string())?;
+    let playlist = db
+        .create_playlist(&name, &thumb)
+        .map_err(|e| e.to_string())?;
     let _ = db.upsert_tracks(&tracks);
     for track in tracks {
         let _ = db.add_to_playlist(playlist.id, &track.id);
@@ -424,7 +489,11 @@ pub async fn get_explore(
             let query = format!("{} music", chunk.join(" "));
             let title = format!(
                 "More {}",
-                chunk.iter().map(|w| capitalize(w)).collect::<Vec<_>>().join(" & ")
+                chunk
+                    .iter()
+                    .map(|w| capitalize(w))
+                    .collect::<Vec<_>>()
+                    .join(" & ")
             );
             fetch_section!(&title, &query, 8);
         }
@@ -448,8 +517,8 @@ pub async fn get_explore(
 
     // 6) use a keyword the user gravitates toward
     if !keywords.is_empty() {
-        let idx = simple_hash(top_artists.first().map(|s| s.as_str()).unwrap_or(""))
-            % keywords.len();
+        let idx =
+            simple_hash(top_artists.first().map(|s| s.as_str()).unwrap_or("")) % keywords.len();
         let word = &keywords[idx].0;
         if !mood_keywords.contains(&word.as_str()) {
             let query = format!("{word} songs playlist");
@@ -470,11 +539,16 @@ fn capitalize(s: &str) -> String {
 }
 
 fn simple_hash(s: &str) -> usize {
-    s.bytes().fold(0usize, |acc, b| acc.wrapping_mul(31).wrapping_add(b as usize))
+    s.bytes().fold(0usize, |acc, b| {
+        acc.wrapping_mul(31).wrapping_add(b as usize)
+    })
 }
 
 fn chrono_minute() -> usize {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     (secs / 60) as usize
 }

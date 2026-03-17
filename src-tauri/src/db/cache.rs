@@ -74,7 +74,9 @@ impl SearchCache {
              CREATE INDEX IF NOT EXISTS idx_history_played ON listen_history(played DESC);",
         )?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     pub fn upsert_tracks(&self, tracks: &[Track]) -> Result<(), AppError> {
@@ -89,7 +91,13 @@ impl SearchCache {
                  duration = excluded.duration",
         )?;
         for t in tracks {
-            stmt.execute(params![t.id, t.title, t.artist, t.thumbnail, t.duration_secs])?;
+            stmt.execute(params![
+                t.id,
+                t.title,
+                t.artist,
+                t.thumbnail,
+                t.duration_secs
+            ])?;
         }
         Ok(())
     }
@@ -227,7 +235,11 @@ impl SearchCache {
         Ok(())
     }
 
-    pub fn reorder_playlist_tracks(&self, playlist_id: i64, track_ids: &[String]) -> Result<(), AppError> {
+    pub fn reorder_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        track_ids: &[String],
+    ) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
         for (i, tid) in track_ids.iter().enumerate() {
@@ -325,8 +337,10 @@ impl SearchCache {
         Ok(tracks)
     }
 
-
-    pub fn recent_track_ids(&self, days: i64) -> Result<std::collections::HashSet<String>, AppError> {
+    pub fn recent_track_ids(
+        &self,
+        days: i64,
+    ) -> Result<std::collections::HashSet<String>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
             "SELECT DISTINCT track_id FROM listen_history
@@ -354,18 +368,82 @@ impl SearchCache {
 
         let mut freq: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
         let stopwords: std::collections::HashSet<&str> = [
-            "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
-            "is", "it", "my", "me", "i", "you", "we", "he", "she", "this", "that",
-            "with", "from", "by", "not", "no", "but", "so", "if", "up", "out",
-            "all", "just", "like", "one", "do", "don", "be", "am", "are", "was",
-            "has", "had", "have", "will", "can", "would", "could", "should",
-            "ft", "feat", "vs", "official", "video", "audio", "music",
-            "lyric", "lyrics", "visualizer", "visualiser", "hd", "hq",
-            "full", "new", "version", "album", "single", "ep",
-        ].into_iter().collect();
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "of",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "is",
+            "it",
+            "my",
+            "me",
+            "i",
+            "you",
+            "we",
+            "he",
+            "she",
+            "this",
+            "that",
+            "with",
+            "from",
+            "by",
+            "not",
+            "no",
+            "but",
+            "so",
+            "if",
+            "up",
+            "out",
+            "all",
+            "just",
+            "like",
+            "one",
+            "do",
+            "don",
+            "be",
+            "am",
+            "are",
+            "was",
+            "has",
+            "had",
+            "have",
+            "will",
+            "can",
+            "would",
+            "could",
+            "should",
+            "ft",
+            "feat",
+            "vs",
+            "official",
+            "video",
+            "audio",
+            "music",
+            "lyric",
+            "lyrics",
+            "visualizer",
+            "visualiser",
+            "hd",
+            "hq",
+            "full",
+            "new",
+            "version",
+            "album",
+            "single",
+            "ep",
+        ]
+        .into_iter()
+        .collect();
 
         for title in &titles {
-            let cleaned = title.to_lowercase()
+            let cleaned = title
+                .to_lowercase()
                 .replace(|c: char| !c.is_alphanumeric() && c != ' ', " ");
             for word in cleaned.split_whitespace() {
                 if word.len() < 3 || stopwords.contains(word) {
@@ -383,9 +461,7 @@ impl SearchCache {
 
     pub fn listen_count(&self) -> Result<i64, AppError> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM listen_history", [], |r| r.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM listen_history", [], |r| r.get(0))?;
         Ok(count)
     }
 }
@@ -446,7 +522,9 @@ mod tests {
     #[test]
     fn get_track_by_id_latency() {
         let db = temp_cache();
-        let tracks: Vec<Track> = (0..1000).map(|i| sample_track(&format!("vid_{i}"))).collect();
+        let tracks: Vec<Track> = (0..1000)
+            .map(|i| sample_track(&format!("vid_{i}")))
+            .collect();
         db.upsert_tracks(&tracks).unwrap();
 
         let t0 = Instant::now();
@@ -491,7 +569,8 @@ mod tests {
     #[test]
     fn playlist_crud() {
         let db = temp_cache();
-        db.upsert_tracks(&[sample_track("t1"), sample_track("t2")]).unwrap();
+        db.upsert_tracks(&[sample_track("t1"), sample_track("t2")])
+            .unwrap();
 
         let pl = db.create_playlist("My List", "thumb").unwrap();
         assert_eq!(pl.name, "My List");

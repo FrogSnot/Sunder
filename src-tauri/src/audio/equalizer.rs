@@ -19,7 +19,10 @@ pub struct EqSettings {
 
 impl Default for EqSettings {
     fn default() -> Self {
-        Self { enabled: false, gains: [0.0; BAND_COUNT] }
+        Self {
+            enabled: false,
+            gains: [0.0; BAND_COUNT],
+        }
     }
 }
 
@@ -65,12 +68,16 @@ struct BiquadState {
 
 impl BiquadState {
     fn new() -> Self {
-        Self { x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0 }
+        Self {
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
     }
 
     fn process(&mut self, c: &BiquadCoeffs, x: f64) -> f64 {
-        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2
-            - c.a1 * self.y1 - c.a2 * self.y2;
+        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2 - c.a1 * self.y1 - c.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -118,10 +125,7 @@ impl<S: Source> EqSource<S>
 where
     S::Item: EqSample,
 {
-    pub fn new(
-        inner: S,
-        settings: Arc<RwLock<EqSettings>>,
-    ) -> Self {
+    pub fn new(inner: S, settings: Arc<RwLock<EqSettings>>) -> Self {
         let channels = inner.channels();
         let sample_rate = inner.sample_rate();
 
