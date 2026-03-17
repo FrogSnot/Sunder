@@ -14,6 +14,7 @@ use extraction::Extractor;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -47,7 +48,6 @@ pub fn run() {
             ipc::commands::reorder_playlist_tracks,
             ipc::commands::get_recently_played,
             ipc::commands::get_explore,
-            ipc::commands::prefetch_track,
             ipc::commands::set_eq_gains,
             ipc::commands::set_eq_enabled,
             ipc::commands::get_eq_settings,
