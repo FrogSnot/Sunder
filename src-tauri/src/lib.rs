@@ -154,6 +154,7 @@ pub fn run() {
             ipc::commands::get_config,
             ipc::commands::set_config,
         ])
+        .plugin(tauri_plugin_notification::init())
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");
 }

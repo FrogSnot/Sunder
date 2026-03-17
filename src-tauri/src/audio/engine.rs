@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use rodio::{Decoder, OutputStream, Sink};
 use tauri::{Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 
 /// Wrapper to send a raw HWND pointer across threads.
@@ -313,6 +314,7 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::UpdateMetadata { title, artist, thumbnail_url } => {
+                    // System Media Controls
                     if let Some(ref mut c) = controls {
                         let _ = c.set_metadata(MediaMetadata {
                             title: Some(&title),
@@ -322,6 +324,41 @@ fn audio_thread(
                             duration: Some(Duration::from_millis(duration_ms.load(Ordering::Relaxed))),
                         });
                     }
+
+                    // System Notification
+                    let app_h = app.clone();
+                    let t_title = title.clone();
+                    let t_artist = artist.clone();
+                    let t_thumb = thumbnail_url.clone();
+
+                    std::thread::spawn(move || {
+                        let mut builder = app_h.notification().builder();
+                        builder = builder.title(&t_title).body(&t_artist);
+
+                        if let Some(url) = t_thumb {
+                            if url.starts_with("http") {
+                                let cache_dir = std::env::temp_dir().join("sunder_thumbs");
+                                let _ = std::fs::create_dir_all(&cache_dir);
+                                
+                                // Simple hash for the filename to avoid re-downloading within the same session if possible
+                                if let Some(id) = url.split("vi/").nth(1).and_then(|s| s.split('/').next()) {
+                                    let icon_path = cache_dir.join(format!("{}.jpg", id));
+                                    if !icon_path.exists() {
+                                        let _ = Command::new("curl")
+                                            .args(&["-s", "-o", icon_path.to_str().unwrap(), &url])
+                                            .status();
+                                    }
+                                    
+                                    if icon_path.exists() {
+                                        if let Ok(img) = tauri::image::Image::from_path(icon_path) {
+                                            builder = builder.icon(img);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        let _ = builder.show();
+                    });
                 }
             }
         }
