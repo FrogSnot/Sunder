@@ -273,9 +273,6 @@ fn audio_thread(
                     if let Some(ref s) = sink {
                         s.set_volume(v);
                     }
-                    if let Some(ref mut c) = controls {
-                        let _ = c.set_volume(v as f64);
-                    }
                 }
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
