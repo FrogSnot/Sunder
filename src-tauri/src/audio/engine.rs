@@ -350,9 +350,7 @@ fn audio_thread(
                                     }
                                     
                                     if icon_path.exists() {
-                                        if let Ok(img) = tauri::image::Image::from_path(icon_path) {
-                                            builder = builder.icon(img);
-                                        }
+                                        builder = builder.icon(icon_path.to_str().unwrap_or_default().to_string());
                                     }
                                 }
                             }
