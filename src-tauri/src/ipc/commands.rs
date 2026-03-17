@@ -318,7 +318,11 @@ pub async fn get_explore(
 
     macro_rules! fetch_section {
         ($title:expr, $query:expr, $limit:expr) => {{
-            if let Ok(tracks) = extractor.search($query, $limit).await {
+            let tracks = match extractor.search($query, $limit).await {
+                Ok(t) => t,
+                Err(_) => extractor.search_youtube($query, $limit).await.unwrap_or_default(),
+            };
+            if !tracks.is_empty() {
                 let _ = db.upsert_tracks(&tracks);
                 let filtered: Vec<Track> = tracks
                     .into_iter()

@@ -20,7 +20,7 @@ use super::state::PlaybackState;
 pub enum AudioCommand {
     Play { video_id: String, duration_ms: u64 },
     Prepared { session_id: usize, sink: rodio::Sink, duration_ms: u64 },
-    LoadFailed { session_id: usize, error: String },
+    LoadFailed { session_id: usize, video_id: String, error: String },
     Pause,
     Resume,
     Stop,
@@ -225,6 +225,7 @@ fn audio_thread(
                             Err(e) => {
                                 let _ = tx_clone.send(AudioCommand::LoadFailed {
                                     session_id,
+                                    video_id: video_id_clone,
                                     error: e.to_string(),
                                 });
                             }
@@ -243,11 +244,12 @@ fn audio_thread(
                         emit_state(&app, &state, &position_ms, &duration_ms);
                     }
                 }
-                AudioCommand::LoadFailed { session_id, error } => {
+                AudioCommand::LoadFailed { session_id, video_id, error } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
                         emit_state(&app, &state, &position_ms, &duration_ms);
                         let _ = app.emit("playback-error", serde_json::json!({
+                            "video_id": video_id,
                             "error": error,
                         }));
                     }
