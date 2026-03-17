@@ -32,7 +32,7 @@ export async function playTrack(track: Track): Promise<void> {
 
 let advancing = false;
 
-async function playNextInQueue(): Promise<void> {
+export async function playNext(): Promise<void> {
   if (advancing) return;
   advancing = true;
   try {
@@ -42,6 +42,13 @@ async function playNextInQueue(): Promise<void> {
     }
   } finally {
     advancing = false;
+  }
+}
+
+export async function playPrev(): Promise<void> {
+  const prev = player.prevTrack();
+  if (prev) {
+    await playTrack(prev);
   }
 }
 
@@ -143,7 +150,7 @@ export function initProgressListener(): () => void {
   }).then((fn) => { unlistenDownload = fn; });
 
   listen("track-finished", () => {
-    playNextInQueue();
+    playNext();
   }).then((fn) => { unlistenFinished = fn; });
 
   listen<{ video_id: string; error: string }>("playback-error", (event) => {
@@ -157,7 +164,7 @@ export function initProgressListener(): () => void {
     if (player.consecutiveErrors < 3 && player.hasNext) {
       setTimeout(() => {
         if (player.currentTrack?.id === failedId && !player.findingAlt) {
-          playNextInQueue();
+          playNext();
         }
       }, 4000);
     }
