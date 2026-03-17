@@ -64,6 +64,11 @@ class PlayerState {
     }
   }
 
+  setQueue(tracks: Track[]) {
+    this.queue = [...tracks];
+    this.queueIndex = -1;
+  }
+
   playNext(track: Track) {
     const filtered = this.queue.filter((t) => t.id !== track.id);
     const insertAt = this.queueIndex + 1;

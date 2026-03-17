@@ -1,7 +1,18 @@
+use tauri::State;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
-use tauri::State;
+use crate::config::{AppConfig, ConfigManager};
+
+#[tauri::command]
+pub fn get_config(config: State<'_, ConfigManager>) -> AppConfig {
+    config.get()
+}
+
+#[tauri::command]
+pub fn set_config(config: AppConfig, manager: State<'_, ConfigManager>) {
+    manager.update(config);
+}
 
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
@@ -16,15 +27,52 @@ pub async fn search(
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<SearchResult, String> {
+    let limit = 10;
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
     if !local.is_empty() {
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });
     }
 
-    let tracks = extractor.search(&query, 10).await.map_err(|e| {
-        eprintln!("Extractor error: {}", e.to_string());
-        e.to_string()
-    })?;
+    // Search both YT Music and YouTube, merge results
+    let (music, youtube) = tokio::join!(
+        extractor.search(&query, limit),
+        extractor.search_youtube(&query, limit)
+    );
+
+    let mut seen = HashSet::new();
+    let mut tracks = Vec::new();
+
+    let music_err = music.as_ref().err().map(|e| e.to_string());
+    let youtube_err = youtube.as_ref().err().map(|e| e.to_string());
+
+    // YT Music results first (priority)
+    if let Ok(music_tracks) = music {
+        for t in music_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
+    // Then YouTube results (fill gaps)
+    if let Ok(yt_tracks) = youtube {
+        for t in yt_tracks {
+            if seen.insert(t.id.clone()) {
+                tracks.push(t);
+            }
+        }
+    }
+
+    // If both sources failed, propagate the error instead of returning empty results
+    if tracks.is_empty() {
+        if let Some(e) = music_err {
+            return Err(e);
+        }
+        if let Some(e) = youtube_err {
+            return Err(e);
+        }
+    }
+
     let _ = db.upsert_tracks(&tracks);
 
     Ok(SearchResult { tracks, source: SearchSource::Remote })
@@ -39,20 +87,21 @@ pub async fn play_track(
 ) -> Result<(), String> {
     // Look up duration from DB by primary key (instant).
     // Only fall back to yt-dlp metadata if the track was never seen before.
-    let duration_ms = match db.get_track_by_id(&track_id) {
-        Ok(Some(t)) => (t.duration_secs * 1000.0) as u64,
+    let (duration_ms, title, artist) = match db.get_track_by_id(&track_id) {
+        Ok(Some(t)) => ((t.duration_secs * 1000.0) as u64, t.title, t.artist),
         _ => {
             match extractor.metadata(&track_id).await {
                 Ok(t) => {
                     let _ = db.upsert_tracks(&[t.clone()]);
-                    (t.duration_secs * 1000.0) as u64
+                    ((t.duration_secs * 1000.0) as u64, t.title, t.artist)
                 }
-                Err(_) => 0,
+                Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string()),
             }
         }
     };
 
     audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
+    audio.send(AudioCommand::UpdateMetadata { title, artist, thumbnail: None });
     let _ = db.record_listen(&track_id);
     Ok(())
 }
@@ -220,6 +269,37 @@ pub async fn get_subtitles(
     extractor: State<'_, Extractor>,
 ) -> Result<String, String> {
     extractor.get_subtitles(&video_id, &lang).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_yt_playlist(
+    url: String,
+    playlist_name: String,
+    db: State<'_, SearchCache>,
+    extractor: State<'_, Extractor>,
+) -> Result<Playlist, String> {
+    let (extracted_name, _playlist_thumbnail, tracks) = extractor
+        .extract_playlist(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if tracks.is_empty() {
+        return Err("No tracks found in playlist".into());
+    }
+
+    let name = if playlist_name.trim().is_empty() {
+        extracted_name
+    } else {
+        playlist_name
+    };
+
+    let playlist = db.create_playlist(&name).map_err(|e| e.to_string())?;
+    let _ = db.upsert_tracks(&tracks);
+    for track in tracks {
+        let _ = db.add_to_playlist(playlist.id, &track.id);
+    }
+
+    Ok(playlist)
 }
 
 #[tauri::command]
