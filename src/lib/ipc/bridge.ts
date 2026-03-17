@@ -11,6 +11,10 @@ export async function searchLocal(query: string): Promise<Track[]> {
   return invoke<Track[]>("search_local", { query });
 }
 
+export async function importYtPlaylist(url: string, playlistName: string): Promise<Playlist> {
+  return invoke<Playlist>("import_yt_playlist", { url, playlistName });
+}
+
 export async function playTrack(track: Track): Promise<void> {
   player.currentTrack = track;
   player.isBuffering = true;

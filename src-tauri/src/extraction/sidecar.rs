@@ -129,6 +129,61 @@ impl Extractor {
             stream_url: None,
         })
     }
+
+    pub async fn extract_playlist(
+        &self,
+        url: &str,
+    ) -> Result<(String, Option<String>, Vec<Track>), AppError> {
+        let output = Command::new(&self.bin)
+            .args([
+                url,
+                "--dump-json",
+                "--flat-playlist",
+                "--no-warnings",
+                "--ignore-errors",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| AppError::Extraction(format!("failed to run yt-dlp: {e}")))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut tracks = Vec::new();
+        let mut playlist_title = "Imported Playlist".to_string();
+        let mut playlist_thumbnail = None;
+
+        for line in stdout.lines() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if playlist_title == "Imported Playlist" {
+                    if let Some(t) = v["playlist_title"].as_str() {
+                        playlist_title = t.to_string();
+                    } else if let Some(t) = v["playlist"].as_str() {
+                        playlist_title = t.to_string();
+                    }
+                }
+                let thumb = best_thumbnail(&v);
+                if playlist_thumbnail.is_none() && !thumb.is_empty() {
+                    playlist_thumbnail = Some(thumb.clone());
+                }
+                if let Some(track) = v["id"].as_str().map(|id| Track {
+                    id: id.to_string(),
+                    title: v["title"].as_str().unwrap_or("Unknown").to_string(),
+                    artist: v["channel"].as_str()
+                        .or_else(|| v["uploader"].as_str())
+                        .unwrap_or("Unknown")
+                        .to_string(),
+                    thumbnail: thumb,
+                    duration_secs: v["duration"].as_f64().unwrap_or(0.0),
+                    stream_url: None,
+                }) {
+                    tracks.push(track);
+                }
+            }
+        }
+
+        Ok((playlist_title, playlist_thumbnail, tracks))
+    }
 }
 
 fn best_thumbnail(v: &serde_json::Value) -> String {

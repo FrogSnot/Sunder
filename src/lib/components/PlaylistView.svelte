@@ -10,6 +10,7 @@
     reorderPlaylistTracks,
     renamePlaylist,
     playTrack,
+    importYtPlaylist,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
@@ -56,6 +57,34 @@
     } finally {
       creating = false;
     }
+  }
+
+  let importing = $state(false);
+  let showImportForm = $state(false);
+  let importUrl = $state("");
+  let importName = $state("");
+
+  async function handleImport() {
+    if (!importUrl.trim()) return;
+    importing = true;
+    try {
+      const p = await importYtPlaylist(importUrl.trim(), importName.trim() || "Imported Playlist");
+      await refreshPlaylists();
+      toastState.add(`Imported "${p.name}" (${p.track_count} tracks)`, "info");
+      importUrl = "";
+      importName = "";
+      showImportForm = false;
+    } catch (e) {
+      console.error("import:", e);
+      toastState.add(`Failed to import: ${e}`, "error");
+    } finally {
+      importing = false;
+    }
+  }
+
+  function handleImportKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") handleImport();
+    if (e.key === "Escape") { showImportForm = false; importUrl = ""; importName = ""; }
   }
 
   async function handleDelete(id: number) {
@@ -297,7 +326,30 @@
       <button class="create-btn" onclick={handleCreate} disabled={creating || !newName.trim()}>
         {creating ? "..." : "+ Create"}
       </button>
+      <button class="import-link-btn" onclick={() => showImportForm = !showImportForm}>
+        {showImportForm ? "Cancel" : "Import Playlist"}
+      </button>
     </div>
+
+    {#if showImportForm}
+      <div class="import-form">
+        <input
+          type="text"
+          placeholder="YouTube / YT Music playlist URL..."
+          bind:value={importUrl}
+          onkeydown={handleImportKeydown}
+        />
+        <input
+          type="text"
+          placeholder="Playlist name (optional)"
+          bind:value={importName}
+          onkeydown={handleImportKeydown}
+        />
+        <button class="create-btn" onclick={handleImport} disabled={importing || !importUrl.trim()}>
+          {importing ? "Importing..." : "Import"}
+        </button>
+      </div>
+    {/if}
 
     {#if playlists.length === 0}
       <div class="empty-state">
@@ -310,11 +362,11 @@
           <div class="playlist-row">
             <button class="playlist-btn" onclick={(e) => { if (renamingId === p.id) e.preventDefault(); else openPlaylist(p); }}>
               <div class="playlist-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
               </div>
               <div class="playlist-info">
                 {#if renamingId === p.id}
@@ -399,6 +451,46 @@
   }
 
   .create-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .import-link-btn {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--bg-overlay);
+    color: var(--text-secondary);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    transition: all 200ms ease;
+  }
+
+  .import-link-btn:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .import-link-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .import-form {
+    display: flex;
+    gap: 8px;
+    padding: 0 24px;
+    margin-bottom: 12px;
+  }
+
+  .import-form input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+  }
+
+  .import-form input:focus {
+    border-color: var(--accent-dim);
+    outline: none;
+  }
 
   .empty-state {
     display: flex;

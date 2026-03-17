@@ -101,6 +101,7 @@ pub fn run() {
             ipc::commands::search,
             ipc::commands::search_local,
             ipc::commands::play_track,
+            ipc::commands::import_yt_playlist,
             ipc::commands::pause,
             ipc::commands::resume,
             ipc::commands::stop,
