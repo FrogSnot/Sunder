@@ -43,7 +43,7 @@ class ConfigState {
 
   async save() {
     try {
-      await invoke("set_config", { newConfig: this.current });
+      await invoke("set_config", { config: $state.snapshot(this.current) });
     } catch (e) {
       console.error("Failed to save config:", e);
     }
