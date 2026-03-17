@@ -10,6 +10,7 @@
     reorderPlaylistTracks,
     renamePlaylist,
     playTrack,
+    importYtPlaylist,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
@@ -55,6 +56,24 @@
       toastState.add(`Failed to create playlist: ${e}`, "error");
     } finally {
       creating = false;
+    }
+  }
+
+  let importing = $state(false);
+  async function handleImport() {
+    const url = prompt("Enter YouTube / YouTube Music playlist URL:");
+    if (!url) return;
+    const name = prompt("Enter a name for this playlist (optional):") || "Imported Playlist";
+    importing = true;
+    try {
+      const p = await importYtPlaylist(url, name);
+      await refreshPlaylists();
+      toastState.add(`Imported "${p.name}" (${p.track_count} tracks)`, "info");
+    } catch (e) {
+      console.error("import:", e);
+      toastState.add(`Failed to import: ${e}`, "error");
+    } finally {
+      importing = false;
     }
   }
 
@@ -120,18 +139,22 @@
 
   async function handlePlayAll() {
     if (detailTracks.length === 0) return;
-    player.clearQueue();
-    for (const t of detailTracks) player.addToQueue(t);
-    const first = player.playFromQueue(0);
-    if (first) await playTrack(first);
+    
+    // Non-blocking: navigate first
+    nav.activeTab = "queue";
+    
+    // Small delay to ensure transition starts
+    setTimeout(async () => {
+      player.setQueue(detailTracks);
+      await playTrack(detailTracks[0]);
+    }, 10);
   }
 
   async function handleQuickPlay(p: Playlist) {
     try {
       const tracks = await getPlaylistTracks(p.id);
       if (tracks.length === 0) return;
-      player.clearQueue();
-      for (const t of tracks) player.addToQueue(t);
+      player.setQueue(tracks);
       const first = player.playFromQueue(0);
       if (first) await playTrack(first);
     } catch (e) {
@@ -297,6 +320,9 @@
       <button class="create-btn" onclick={handleCreate} disabled={creating || !newName.trim()}>
         {creating ? "..." : "+ Create"}
       </button>
+      <button class="import-link-btn" onclick={handleImport} disabled={importing}>
+        {importing ? "..." : "Import Playlists"}
+      </button>
     </div>
 
     {#if playlists.length === 0}
@@ -310,11 +336,15 @@
           <div class="playlist-row">
             <button class="playlist-btn" onclick={(e) => { if (renamingId === p.id) e.preventDefault(); else openPlaylist(p); }}>
               <div class="playlist-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
+                {#if p.thumbnail}
+                  <img src={p.thumbnail} alt={p.name} class="playlist-thumb" />
+                {:else}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                {/if}
               </div>
               <div class="playlist-info">
                 {#if renamingId === p.id}
@@ -400,6 +430,24 @@
 
   .create-btn:disabled { opacity: 0.5; cursor: default; }
 
+  .import-link-btn {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--bg-overlay);
+    color: var(--text-secondary);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    transition: all 200ms ease;
+  }
+
+  .import-link-btn:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .import-link-btn:disabled { opacity: 0.5; cursor: default; }
+
   .empty-state {
     display: flex;
     flex-direction: column;
@@ -460,7 +508,14 @@
     border-radius: var(--radius-sm);
     color: var(--accent);
     flex-shrink: 0;
+    overflow: hidden;
     transition: background 200ms ease, transform 200ms ease;
+  }
+
+  .playlist-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .playlist-btn:hover .playlist-icon {
