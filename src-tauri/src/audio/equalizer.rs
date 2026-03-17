@@ -1,8 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
+
 use rodio::{Sample, Source};
 
 pub const BAND_COUNT: usize = 10;
+
 const BAND_FREQUENCIES: [f32; BAND_COUNT] = [
     32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 ];
@@ -108,11 +110,7 @@ where
     sample_rate: u32,
     channel_idx: u16,
     fade_samples: usize,
-    silence_samples: usize,
     fade_counter: usize,
-    pending_seek: Arc<AtomicI64>,
-    fade_out_counter: usize,
-    fade_out_samples: usize,
     needs_refresh: Arc<AtomicBool>,
 }
 
@@ -123,7 +121,6 @@ where
     pub fn new(
         inner: S,
         settings: Arc<RwLock<EqSettings>>,
-        pending_seek: Arc<AtomicI64>,
     ) -> Self {
         let channels = inner.channels();
         let sample_rate = inner.sample_rate();
@@ -149,12 +146,8 @@ where
             channels,
             sample_rate,
             channel_idx: 0,
-            fade_samples: (sample_rate as f32 * 0.10) as usize, // 100ms fade
-            silence_samples: (sample_rate as f32 * 0.05) as usize, // 50ms absolute silence
+            fade_samples: (sample_rate as f32 * 0.15) as usize, // 150ms fade
             fade_counter: 0,
-            pending_seek,
-            fade_out_counter: 0,
-            fade_out_samples: (sample_rate as f32 * 0.02) as usize, // 20ms fade-out
             needs_refresh: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -182,26 +175,6 @@ where
     fn next(&mut self) -> Option<f32> {
         let ch = self.channel_idx as usize;
 
-        // Handle pending seek (Fade-out -> Seek -> Reset -> Fade-in)
-        if ch == 0 {
-            let ms = self.pending_seek.load(Ordering::Acquire);
-            if ms >= 0 {
-                if self.fade_out_counter < self.fade_out_samples {
-                    // Still fading out
-                    self.fade_out_counter += 1;
-                } else {
-                    // Fade out finished, perform actual seek
-                    let pos = std::time::Duration::from_millis(ms as u64);
-                    let _ = self.try_seek(pos);
-                    // Reset Atomic to -1 after handling
-                    self.pending_seek.store(-1, Ordering::Release);
-                    self.fade_out_counter = 0;
-                }
-            } else {
-                self.fade_out_counter = 0;
-            }
-        }
-
         let sample_raw = self.inner.next()?;
         let sample = sample_raw.to_f32_sample();
         self.channel_idx = (self.channel_idx + 1) % self.channels;
@@ -221,22 +194,10 @@ where
             sample
         };
 
-        // Apply fade-out gating if we are in a pending seek
-        if self.fade_out_counter > 0 {
-            let t = 1.0 - (self.fade_out_counter as f32 / self.fade_out_samples as f32);
-            out *= t * t; // Quadratic fade out
-        }
-
-        // Silence + Fade-in logic (always active to prevent pops)
-        if self.fade_counter < self.silence_samples {
-            out = 0.0;
-            if ch == (self.channels - 1) as usize {
-                self.fade_counter += 1;
-            }
-        } else if self.fade_counter < (self.silence_samples + self.fade_samples) {
-            let t = (self.fade_counter - self.silence_samples) as f32 / self.fade_samples as f32;
-            let gain = t * t * t;
-            out *= gain;
+        // Simple fade-in to prevent pops on start/seek
+        if self.fade_counter < self.fade_samples {
+            let t = self.fade_counter as f32 / self.fade_samples as f32;
+            out *= t * t; // Quadratic fade-in
             if ch == (self.channels - 1) as usize {
                 self.fade_counter += 1;
             }
@@ -268,6 +229,7 @@ where
 
     fn try_seek(&mut self, pos: std::time::Duration) -> Result<(), rodio::source::SeekError> {
         self.inner.try_seek(pos)?;
+        // Reset state on seek to prevent filter ring/transient pops
         for ch_states in &mut self.states {
             for state in ch_states {
                 *state = BiquadState::new();

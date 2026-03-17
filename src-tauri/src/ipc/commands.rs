@@ -87,21 +87,21 @@ pub async fn play_track(
 ) -> Result<(), String> {
     // Look up duration from DB by primary key (instant).
     // Only fall back to yt-dlp metadata if the track was never seen before.
-    let (duration_ms, title, artist) = match db.get_track_by_id(&track_id) {
-        Ok(Some(t)) => ((t.duration_secs * 1000.0) as u64, t.title, t.artist),
+    let (duration_ms, title, artist, thumbnail_url) = match db.get_track_by_id(&track_id) {
+        Ok(Some(t)) => ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail)),
         _ => {
             match extractor.metadata(&track_id).await {
                 Ok(t) => {
                     let _ = db.upsert_tracks(std::slice::from_ref(&t));
-                    ((t.duration_secs * 1000.0) as u64, t.title, t.artist)
+                    ((t.duration_secs * 1000.0) as u64, t.title, t.artist, Some(t.thumbnail))
                 }
-                Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string()),
+                Err(_) => (0u64, "Unknown".to_string(), "Unknown".to_string(), None),
             }
         }
     };
 
     audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
-    audio.send(AudioCommand::UpdateMetadata { title, artist, thumbnail: None });
+    audio.send(AudioCommand::UpdateMetadata { title, artist, thumbnail_url });
     let _ = db.record_listen(&track_id);
     Ok(())
 }

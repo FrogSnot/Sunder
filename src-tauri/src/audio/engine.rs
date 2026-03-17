@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 use std::io::{self, BufRead, Read};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering, AtomicI64};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -27,7 +27,7 @@ pub enum AudioCommand {
     SetVolume(f32),
     Seek(f64),
     #[allow(dead_code)]
-    UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
+    UpdateMetadata { title: String, artist: String, thumbnail_url: Option<String> },
 }
 pub struct AudioHandle {
     tx: std::sync::mpsc::Sender<AudioCommand>,
@@ -38,7 +38,6 @@ pub struct AudioHandle {
     pub eq_settings: Arc<RwLock<EqSettings>>,
     #[allow(dead_code)]
     pub current_session: Arc<AtomicUsize>,
-    pub pending_seek: Arc<AtomicI64>,
 }
 
 impl AudioHandle {
@@ -50,7 +49,6 @@ impl AudioHandle {
         let volume = Arc::new(RwLock::new(volume));
         let eq_settings = Arc::new(RwLock::new(eq));
         let current_session = Arc::new(AtomicUsize::new(0));
-        let pending_seek = Arc::new(AtomicI64::new(-1));
 
         let handle = Self {
             tx: tx.clone(),
@@ -60,7 +58,6 @@ impl AudioHandle {
             volume: volume.clone(),
             eq_settings: eq_settings.clone(),
             current_session: current_session.clone(),
-            pending_seek: pending_seek.clone(),
         };
 
         let hwnd = Self::extract_hwnd(&app);
@@ -83,7 +80,6 @@ impl AudioHandle {
                     app_handle,
                     current_session_clone,
                     hwnd,
-                    pending_seek,
                 );
             })
             .expect("failed to spawn audio thread");
@@ -128,7 +124,6 @@ fn audio_thread(
     app: tauri::AppHandle,
     current_session: Arc<AtomicUsize>,
     hwnd: Option<RawHwnd>,
-    pending_seek: Arc<AtomicI64>,
 ) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
         Ok(s) => s,
@@ -232,7 +227,6 @@ fn audio_thread(
                     let tx_clone = tx.clone();
                     let video_id_clone = video_id.clone();
                     let session_clone = current_session.clone();
-                    let pending_seek_clone = pending_seek.clone();
 
                     std::thread::spawn(move || {
                         // Early exit if session was already superseded (rapid skip)
@@ -240,7 +234,7 @@ fn audio_thread(
                             return;
                         }
                         let vol = *volume_clone.read().unwrap();
-                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone, session_id, &session_clone, &pending_seek_clone) {
+                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone, session_id, &session_clone) {
                             Ok(new_sink) => {
                                 let _ = tx_clone.send(AudioCommand::Prepared {
                                     session_id,
@@ -306,17 +300,25 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Seek(secs) => {
-                    let ms = (secs * 1000.0) as i64;
-                    pending_seek.store(ms, Ordering::Release);
-                    position_ms.store(ms.max(0) as u64, Ordering::Release);
+                    if let Some(ref s) = sink {
+                        let vol = *volume.read().unwrap();
+                        // Duck volume briefly to hide the pop
+                        s.set_volume(vol * 0.05);
+                        let d = Duration::from_secs_f64(secs.max(0.0));
+                        let _ = s.try_seek(d);
+                        // Rodio's internal buffer will flush. 
+                        // Restore volume after a tiny delay or just directly
+                        s.set_volume(vol);
+                        position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                    }
                 }
-                AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
+                AudioCommand::UpdateMetadata { title, artist, thumbnail_url } => {
                     if let Some(ref mut c) = controls {
                         let _ = c.set_metadata(MediaMetadata {
                             title: Some(&title),
                             artist: Some(&artist),
                             album: None,
-                            cover_url: None,
+                            cover_url: thumbnail_url.as_deref(),
                             duration: Some(Duration::from_millis(duration_ms.load(Ordering::Relaxed))),
                         });
                     }
@@ -407,7 +409,6 @@ fn start_streaming(
     app: &tauri::AppHandle,
     session_id: usize,
     current_session: &Arc<AtomicUsize>,
-    pending_seek: &Arc<AtomicI64>,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin();
@@ -544,7 +545,7 @@ fn start_streaming(
         .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
     
-    let source = EqSource::new(decoder, eq_settings.clone(), pending_seek.clone());
+    let source = EqSource::new(decoder, eq_settings.clone());
     sink.append(source);
 
     Ok(sink)
