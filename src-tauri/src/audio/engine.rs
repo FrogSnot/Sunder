@@ -295,6 +295,7 @@ fn audio_thread(
                 } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
+                        active_id = None;
                         emit_state(&app, &state, &position_ms, &duration_ms);
                         let _ = app.emit(
                             "playback-error",
@@ -322,6 +323,7 @@ fn audio_thread(
                         s.stop();
                     }
                     *state.write().unwrap() = PlaybackState::Stopped;
+                    active_id = None;
                     position_ms.store(0, Ordering::Release);
                 }
                 AudioCommand::SetVolume(v) => {
@@ -426,6 +428,7 @@ fn audio_thread(
                 s.stop();
             }
             *state.write().unwrap() = PlaybackState::Idle;
+            active_id = None;
             position_ms.store(0, Ordering::Release);
             let _ = app.emit("track-finished", ());
         }
