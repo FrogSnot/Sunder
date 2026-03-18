@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { player } from "./player.svelte";
+import { setVolume, setEqEnabled, setEqGains } from "../ipc/bridge";
 
 export interface AppConfig {
   volume: number;
@@ -19,10 +21,25 @@ class ConfigState {
   async load() {
     try {
       this.current = await invoke<AppConfig>("get_config");
-      this.loaded = true;
     } catch {
       this.current = { ...defaults };
     }
+
+    // Sync into player state
+    player.volume = this.current.volume;
+    player.eqEnabled = this.current.eq_enabled;
+    player.eqGains = [...this.current.eq_gains];
+
+    // Best-effort backend sync (engine may have started with defaults)
+    try {
+      await setVolume(player.volume);
+      await setEqEnabled(player.eqEnabled);
+      await setEqGains(player.eqGains);
+    } catch (e) {
+      console.error("Failed to sync config to backend:", e);
+    }
+
+    this.loaded = true;
   }
 
   async save() {
@@ -40,3 +57,20 @@ class ConfigState {
 }
 
 export const config = new ConfigState();
+
+// Debounced watcher: persist player state changes with 300ms delay
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+$effect.root(() => {
+  $effect(() => {
+    if (!config.loaded) return;
+    const volume = player.volume;
+    const eq_enabled = player.eqEnabled;
+    const eq_gains = $state.snapshot(player.eqGains);
+
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      config.update({ volume, eq_enabled, eq_gains });
+    }, 300);
+  });
+});
