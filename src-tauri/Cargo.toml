@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util"] }
@@ -21,6 +22,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 regex-lite = "0.1"
 souvlaki = "0.8.3"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"] }
+image = { version = "0.25", features = ["png", "jpeg"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -15,6 +15,7 @@ use extraction::Extractor;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app
                 .path()
