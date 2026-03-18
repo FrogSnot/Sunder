@@ -6,8 +6,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rodio::{Decoder, OutputStream, Sink, Source};
-use tauri::{Emitter, Manager};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
+use tauri::{Emitter, Manager};
 
 /// Wrapper to send a raw HWND pointer across threads.
 /// SAFETY: The HWND outlives the audio thread (it's the main window).
@@ -18,16 +18,31 @@ use super::equalizer::{EqSettings, EqSource};
 use super::state::PlaybackState;
 
 pub enum AudioCommand {
-    Play { video_id: String, duration_ms: u64 },
-    Prepared { session_id: usize, sink: rodio::Sink, duration_ms: u64 },
-    LoadFailed { session_id: usize, video_id: String, error: String },
+    Play {
+        video_id: String,
+        duration_ms: u64,
+    },
+    Prepared {
+        session_id: usize,
+        sink: rodio::Sink,
+        duration_ms: u64,
+    },
+    LoadFailed {
+        session_id: usize,
+        video_id: String,
+        error: String,
+    },
     Pause,
     Resume,
     Stop,
     SetVolume(f32),
     Seek(f64),
     #[allow(dead_code)]
-    UpdateMetadata { title: String, artist: String, thumbnail: Option<Vec<u8>> },
+    UpdateMetadata {
+        title: String,
+        artist: String,
+        thumbnail: Option<Vec<u8>>,
+    },
 }
 
 pub struct AudioHandle {
@@ -147,8 +162,12 @@ fn audio_thread(
             let app_clone = app.clone();
             let _ = c.attach(move |event| {
                 match event {
-                    MediaControlEvent::Pause => { let _ = tx_clone.send(AudioCommand::Pause); }
-                    MediaControlEvent::Play => { let _ = tx_clone.send(AudioCommand::Resume); }
+                    MediaControlEvent::Pause => {
+                        let _ = tx_clone.send(AudioCommand::Pause);
+                    }
+                    MediaControlEvent::Play => {
+                        let _ = tx_clone.send(AudioCommand::Resume);
+                    }
                     MediaControlEvent::Toggle => {
                         // Toggle routes through the frontend so it can update UI state
                         let _ = app_clone.emit("media-toggle", ());
@@ -159,11 +178,17 @@ fn audio_thread(
                     MediaControlEvent::Previous => {
                         let _ = app_clone.emit("media-previous", ());
                     }
-                    MediaControlEvent::Stop => { let _ = tx_clone.send(AudioCommand::Stop); }
+                    MediaControlEvent::Stop => {
+                        let _ = tx_clone.send(AudioCommand::Stop);
+                    }
                     MediaControlEvent::Seek(_) => {}
                     MediaControlEvent::SeekBy(_, _) => {}
-                    MediaControlEvent::SetPosition(pos) => { let _ = tx_clone.send(AudioCommand::Seek(pos.0.as_secs_f64())); }
-                    MediaControlEvent::SetVolume(v) => { let _ = tx_clone.send(AudioCommand::SetVolume(v as f32)); }
+                    MediaControlEvent::SetPosition(pos) => {
+                        let _ = tx_clone.send(AudioCommand::Seek(pos.0.as_secs_f64()));
+                    }
+                    MediaControlEvent::SetVolume(v) => {
+                        let _ = tx_clone.send(AudioCommand::SetVolume(v as f32));
+                    }
                     _ => {}
                 }
             });
@@ -220,7 +245,14 @@ fn audio_thread(
                             return;
                         }
                         let vol = *volume_clone.read().unwrap();
-                        match start_streaming(&video_id_clone, &state_clone, &stream_handle_clone, vol, &eq_settings_clone, &app_clone) {
+                        match start_streaming(
+                            &video_id_clone,
+                            &state_clone,
+                            &stream_handle_clone,
+                            vol,
+                            &eq_settings_clone,
+                            &app_clone,
+                        ) {
                             Ok(new_sink) => {
                                 let _ = tx_clone.send(AudioCommand::Prepared {
                                     session_id,
@@ -238,7 +270,11 @@ fn audio_thread(
                         }
                     });
                 }
-                AudioCommand::Prepared { session_id, sink: new_sink, duration_ms: dur } => {
+                AudioCommand::Prepared {
+                    session_id,
+                    sink: new_sink,
+                    duration_ms: dur,
+                } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         if let Some(s) = sink.take() {
                             s.stop();
@@ -250,14 +286,21 @@ fn audio_thread(
                         emit_state(&app, &state, &position_ms, &duration_ms);
                     }
                 }
-                AudioCommand::LoadFailed { session_id, video_id, error } => {
+                AudioCommand::LoadFailed {
+                    session_id,
+                    video_id,
+                    error,
+                } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
                         emit_state(&app, &state, &position_ms, &duration_ms);
-                        let _ = app.emit("playback-error", serde_json::json!({
-                            "video_id": video_id,
-                            "error": error,
-                        }));
+                        let _ = app.emit(
+                            "playback-error",
+                            serde_json::json!({
+                                "video_id": video_id,
+                                "error": error,
+                            }),
+                        );
                     }
                 }
                 AudioCommand::Pause => {
@@ -295,14 +338,20 @@ fn audio_thread(
                         }
                     }
                 }
-                AudioCommand::UpdateMetadata { title, artist, thumbnail: _ } => {
+                AudioCommand::UpdateMetadata {
+                    title,
+                    artist,
+                    thumbnail: _,
+                } => {
                     if let Some(ref mut c) = controls {
                         let _ = c.set_metadata(MediaMetadata {
                             title: Some(&title),
                             artist: Some(&artist),
                             album: None,
                             cover_url: None,
-                            duration: Some(Duration::from_millis(duration_ms.load(Ordering::Relaxed))),
+                            duration: Some(Duration::from_millis(
+                                duration_ms.load(Ordering::Relaxed),
+                            )),
                         });
                     }
                 }
@@ -353,7 +402,10 @@ fn audio_thread(
 
                 // Force completion if position far exceeds reported duration
                 // (guards against decoders that don't EOF cleanly)
-                if dur > 0 && pos_ms > dur + 2000 && *state.read().unwrap() == PlaybackState::Playing {
+                if dur > 0
+                    && pos_ms > dur + 2000
+                    && *state.read().unwrap() == PlaybackState::Playing
+                {
                     eprintln!(
                         "[sunder] position ({pos_ms}ms) exceeded duration ({dur}ms), forcing track end"
                     );
@@ -402,8 +454,7 @@ fn start_streaming(
     let bin = ytdlp_bin();
 
     let cache_dir = std::env::temp_dir().join("sunder");
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(crate::error::AppError::Io)?;
+    std::fs::create_dir_all(&cache_dir).map_err(crate::error::AppError::Io)?;
 
     let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
@@ -411,20 +462,27 @@ fn start_streaming(
     *state.write().unwrap() = PlaybackState::Buffering;
 
     if !expected_path.exists() {
-        let _ = app.emit("download-progress", serde_json::json!({
-            "percent": 0.0, "stage": "preparing"
-        }));
+        let _ = app.emit(
+            "download-progress",
+            serde_json::json!({
+                "percent": 0.0, "stage": "preparing"
+            }),
+        );
 
         let out_path_str = out_template.to_str().unwrap_or_default();
         let base_args: Vec<&str> = vec![
             url.as_str(),
             "--extract-audio",
-            "--audio-format", "mp3",
-            "--audio-quality", "2",
-            "-o", out_path_str,
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "2",
+            "-o",
+            out_path_str,
             "--no-playlist",
             "--newline",
-            "--concurrent-fragments", "4",
+            "--concurrent-fragments",
+            "4",
         ];
         let fallback_args: &[&str] = &["--force-ipv4", "--geo-bypass", "--extractor-retries", "3"];
         let mut last_error = String::new();
@@ -432,7 +490,15 @@ fn start_streaming(
         for attempt in 0..2u8 {
             if attempt > 0 {
                 eprintln!("[sunder] retrying download (attempt {})", attempt + 1);
-                for ext in ["mp3", "webm", "m4a", "opus", "part", "webm.part", "m4a.part"] {
+                for ext in [
+                    "mp3",
+                    "webm",
+                    "m4a",
+                    "opus",
+                    "part",
+                    "webm.part",
+                    "m4a.part",
+                ] {
                     let _ = std::fs::remove_file(cache_dir.join(format!("{video_id}.{ext}")));
                 }
             }
@@ -449,30 +515,47 @@ fn start_streaming(
                 .spawn()
             {
                 Ok(c) => c,
-                Err(e) => return Err(crate::error::AppError::Extraction(format!("failed to spawn yt-dlp: {e}"))),
+                Err(e) => {
+                    return Err(crate::error::AppError::Extraction(format!(
+                        "failed to spawn yt-dlp: {e}"
+                    )))
+                }
             };
 
             if let Some(stdout) = child.stdout.take() {
                 for line in io::BufReader::new(stdout).lines().map_while(Result::ok) {
                     if let Some(pct) = parse_download_pct(&line) {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": pct, "stage": "downloading"
-                        }));
+                        let _ = app.emit(
+                            "download-progress",
+                            serde_json::json!({
+                                "percent": pct, "stage": "downloading"
+                            }),
+                        );
                     } else if line.contains("[ExtractAudio]") {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": 100.0, "stage": "converting"
-                        }));
+                        let _ = app.emit(
+                            "download-progress",
+                            serde_json::json!({
+                                "percent": 100.0, "stage": "converting"
+                            }),
+                        );
                     } else if line.contains("[youtube]") || line.contains("[info]") {
-                        let _ = app.emit("download-progress", serde_json::json!({
-                            "percent": 0.0, "stage": "extracting"
-                        }));
+                        let _ = app.emit(
+                            "download-progress",
+                            serde_json::json!({
+                                "percent": 0.0, "stage": "extracting"
+                            }),
+                        );
                     }
                 }
             }
 
             let status = match child.wait() {
                 Ok(s) => s,
-                Err(e) => return Err(crate::error::AppError::Extraction(format!("yt-dlp wait: {e}"))),
+                Err(e) => {
+                    return Err(crate::error::AppError::Extraction(format!(
+                        "yt-dlp wait: {e}"
+                    )))
+                }
             };
 
             if status.success() && expected_path.exists() {
@@ -480,7 +563,9 @@ fn start_streaming(
                 break;
             }
 
-            let stderr_out = child.stderr.take()
+            let stderr_out = child
+                .stderr
+                .take()
                 .map(|mut s| {
                     let mut buf = String::new();
                     let _ = s.read_to_string(&mut buf);
@@ -490,8 +575,16 @@ fn start_streaming(
 
             last_error = if !stderr_out.is_empty() {
                 let trimmed = stderr_out.trim();
-                eprintln!("[sunder] yt-dlp stderr (attempt {}): {}", attempt + 1, trimmed);
-                format!("yt-dlp failed ({}): {}", status, trimmed.lines().last().unwrap_or(trimmed))
+                eprintln!(
+                    "[sunder] yt-dlp stderr (attempt {}): {}",
+                    attempt + 1,
+                    trimmed
+                );
+                format!(
+                    "yt-dlp failed ({}): {}",
+                    status,
+                    trimmed.lines().last().unwrap_or(trimmed)
+                )
             } else {
                 format!("yt-dlp failed ({})", status)
             };
@@ -502,9 +595,10 @@ fn start_streaming(
         }
 
         if !expected_path.exists() {
-            return Err(crate::error::AppError::Extraction(
-                format!("yt-dlp produced no output at {}", expected_path.display()),
-            ));
+            return Err(crate::error::AppError::Extraction(format!(
+                "yt-dlp produced no output at {}",
+                expected_path.display()
+            )));
         }
     } else {
         eprintln!("[sunder] cache hit: {}", expected_path.display());
@@ -513,17 +607,24 @@ fn start_streaming(
     let file_len = std::fs::metadata(&expected_path)
         .map(|m| m.len())
         .unwrap_or(0);
-    eprintln!("[sunder] audio ready: {} bytes at {}", file_len, expected_path.display());
+    eprintln!(
+        "[sunder] audio ready: {} bytes at {}",
+        file_len,
+        expected_path.display()
+    );
 
     let file = std::fs::File::open(&expected_path)
         .map_err(crate::error::AppError::Io)?;
-    let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file))
+    let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
-    let sink = Sink::try_new(stream_handle)
-        .map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
+    let sink =
+        Sink::try_new(stream_handle).map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
     sink.set_volume(volume);
-    sink.append(EqSource::new(decoder.convert_samples(), eq_settings.clone()));
+    sink.append(EqSource::new(
+        decoder.convert_samples(),
+        eq_settings.clone(),
+    ));
 
     Ok(sink)
 }
