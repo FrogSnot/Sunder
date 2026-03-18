@@ -245,11 +245,25 @@ impl Extractor {
 
 fn best_thumbnail(v: &serde_json::Value) -> String {
     if let Some(thumbs) = v["thumbnails"].as_array() {
-        if let Some(last) = thumbs.last() {
-            if let Some(url) = last["url"].as_str() {
+        // Pick a medium-res thumbnail (~320x180) instead of the largest one.
+        // Using a huge thumbnail wastes VRAM when displayed at 48-200px in the UI.
+        let target = thumbs.iter().find(|t| {
+            t["width"].as_u64().is_some_and(|w| (280..=400).contains(&w))
+        });
+        let chosen = target
+            .or_else(|| thumbs.get(thumbs.len().min(2).saturating_sub(0).min(thumbs.len() - 1)))
+            .or_else(|| thumbs.first());
+        if let Some(t) = chosen {
+            if let Some(url) = t["url"].as_str() {
                 return url.to_string();
             }
         }
     }
-    v["thumbnail"].as_str().unwrap_or_default().to_string()
+    // Fallback
+    let base = v["thumbnail"].as_str().unwrap_or_default();
+    if !base.is_empty() && base.contains("i.ytimg.com") && !base.contains("?sqp=") {
+        return base.replace("maxresdefault", "mqdefault")
+                   .replace("hqdefault", "mqdefault");
+    }
+    base.to_string()
 }

@@ -198,6 +198,8 @@ fn audio_thread(
 
     let mut last_mpris_state: Option<PlaybackState> = None;
     let mut last_mpris_pos: u64 = 0;
+    let mut last_emit_state: Option<PlaybackState> = None;
+    let mut last_emit_pos: u64 = 0;
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(50));
@@ -216,10 +218,11 @@ fn audio_thread(
 
         for cmd in cmds {
             match cmd {
-                AudioCommand::Play {
-                    video_id,
-                    duration_ms: dur,
-                } => {
+                AudioCommand::Play { video_id, duration_ms: dur } => {
+                    // Stop the old sink immediately to free decoded audio memory
+                    if let Some(s) = sink.take() {
+                        s.stop();
+                    }
                     let session_id = current_session.fetch_add(1, Ordering::SeqCst) + 1;
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
@@ -420,7 +423,16 @@ fn audio_thread(
             let _ = app.emit("track-finished", ());
         }
 
-        emit_state(&app, &state, &position_ms, &duration_ms);
+        // Only emit when state or position actually changed (debounce 200ms)
+        let cur_state = state.read().unwrap().clone();
+        let cur_pos = position_ms.load(Ordering::Relaxed);
+        let state_changed = last_emit_state.as_ref() != Some(&cur_state);
+        let pos_changed = cur_pos.abs_diff(last_emit_pos) > 200;
+        if state_changed || pos_changed {
+            emit_state(&app, &state, &position_ms, &duration_ms);
+            last_emit_state = Some(cur_state);
+            last_emit_pos = cur_pos;
+        }
     }
 }
 
@@ -599,7 +611,7 @@ fn start_streaming(
     );
 
     let file = std::fs::File::open(&expected_path).map_err(crate::error::AppError::Io)?;
-    let decoder = Decoder::new(io::BufReader::with_capacity(512 * 1024, file))
+    let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
     let sink =

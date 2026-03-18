@@ -18,7 +18,10 @@ pub struct EqSettings {
 
 impl Default for EqSettings {
     fn default() -> Self {
-        Self { enabled: false, gains: [0.0; BAND_COUNT] }
+        Self {
+            enabled: false,
+            gains: [0.0; BAND_COUNT],
+        }
     }
 }
 
@@ -39,12 +42,16 @@ struct BiquadState {
 
 impl BiquadState {
     fn new() -> Self {
-        Self { x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0 }
+        Self {
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
     }
 
     fn process(&mut self, c: &BiquadCoeffs, x: f64) -> f64 {
-        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2
-            - c.a1 * self.y1 - c.a2 * self.y2;
+        let y = c.b0 * x + c.b1 * self.x1 + c.b2 * self.x2 - c.a1 * self.y1 - c.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = x;
         self.y2 = self.y1;
@@ -80,6 +87,8 @@ pub struct EqSource<S: Source<Item = f32>> {
     channels: u16,
     sample_rate: u32,
     channel_idx: u16,
+    fade_samples: usize,
+    fade_counter: usize,
 }
 
 impl<S: Source<Item = f32>> EqSource<S> {
@@ -108,6 +117,8 @@ impl<S: Source<Item = f32>> EqSource<S> {
             channels,
             sample_rate,
             channel_idx: 0,
+            fade_samples: (sample_rate as f32 * 0.15) as usize, // 150ms fade
+            fade_counter: 0,
         }
     }
 
@@ -129,23 +140,34 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        let sample = self.inner.next()?;
         let ch = self.channel_idx as usize;
+        let sample = self.inner.next()?;
         self.channel_idx = (self.channel_idx + 1) % self.channels;
 
         if ch == 0 {
             self.refresh();
         }
 
-        if !self.enabled {
-            return Some(sample);
+        let mut out = if self.enabled {
+            let mut v = sample as f64;
+            for (i, state) in self.states[ch].iter_mut().enumerate() {
+                v = state.process(&self.coeffs[i], v);
+            }
+            v.clamp(-1.0, 1.0) as f32
+        } else {
+            sample
+        };
+
+        // Simple fade-in to prevent pops on start/seek
+        if self.fade_counter < self.fade_samples {
+            let t = self.fade_counter as f32 / self.fade_samples as f32;
+            out *= t * t; // Quadratic fade-in
+            if ch == (self.channels - 1) as usize {
+                self.fade_counter += 1;
+            }
         }
 
-        let mut v = sample as f64;
-        for (i, state) in self.states[ch].iter_mut().enumerate() {
-            v = state.process(&self.coeffs[i], v);
-        }
-        Some(v.clamp(-1.0, 1.0) as f32)
+        Some(out)
     }
 }
 
@@ -164,5 +186,18 @@ impl<S: Source<Item = f32>> Source for EqSource<S> {
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         self.inner.total_duration()
+    }
+
+    fn try_seek(&mut self, pos: std::time::Duration) -> Result<(), rodio::source::SeekError> {
+        self.inner.try_seek(pos)?;
+        // Reset state on seek to prevent filter ring/transient pops
+        for ch_states in &mut self.states {
+            for state in ch_states {
+                *state = BiquadState::new();
+            }
+        }
+        self.fade_counter = 0;
+        self.channel_idx = 0;
+        Ok(())
     }
 }

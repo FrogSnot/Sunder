@@ -67,7 +67,7 @@
     position: fixed;
     right: 0;
     top: 0;
-    bottom: 0;
+    bottom: var(--player-height);
     width: 340px;
     background: var(--bg-surface);
     border-left: 1px solid var(--bg-overlay);
@@ -75,6 +75,7 @@
     flex-direction: column;
     z-index: 100;
     animation: slideIn 200ms ease;
+    transition: bottom 300ms var(--ease-out-expo);
   }
 
   @keyframes slideIn {
