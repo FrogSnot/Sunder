@@ -20,6 +20,7 @@
   } from "./lib/ipc/bridge";
   import { player } from "./lib/state/player.svelte";
   import { nav } from "./lib/state/nav.svelte";
+  import { config } from "./lib/state/config.svelte";
 
   let cleanup: (() => void) | undefined;
 
@@ -29,6 +30,7 @@
 
   onMount(() => {
     cleanup = initProgressListener();
+    config.load();
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       cleanup?.();

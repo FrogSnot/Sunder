@@ -1,6 +1,5 @@
 import type { Track, PlaybackProgress } from "../types";
 import { prefetchTrack } from "../ipc/bridge";
-import { config } from "./config.svelte";
 
 const PREFETCH_AHEAD = 2;
 
@@ -168,6 +167,3 @@ function formatTime(secs: number): string {
 }
 
 export const player = new PlayerState();
-
-// Trigger persistence load
-config.load();
