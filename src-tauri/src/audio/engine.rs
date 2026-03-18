@@ -38,15 +38,9 @@ pub enum AudioCommand {
     SetVolume(f32),
     Seek(f64),
     UpdateMetadata {
-        video_id: String,
         title: String,
         artist: String,
         thumbnail: String,
-    },
-    ArtReady {
-        title: String,
-        artist: String,
-        path: Option<std::path::PathBuf>,
     },
 }
 
@@ -340,69 +334,20 @@ fn audio_thread(
                         }
                     }
                 }
-                AudioCommand::UpdateMetadata {
-                    video_id,
-                    title,
-                    artist,
-                    thumbnail,
-                } => {
+                AudioCommand::UpdateMetadata { title, artist, thumbnail } => {
                     if let Some(ref mut c) = controls {
-                        let _ = c.set_metadata(MediaMetadata {
+                        let metadata = MediaMetadata {
                             title: Some(&title),
                             artist: Some(&artist),
                             album: None,
-                            cover_url: None,
-                            duration: Some(Duration::from_millis(
-                                duration_ms.load(Ordering::Relaxed),
-                            )),
-                        });
-                    }
-
-                    // Spawn worker to fetch art
-                    let tx_clone = tx.clone();
-                    let video_id_clone = video_id.clone();
-                    let title_clone = title.clone();
-                    let artist_clone = artist.clone();
-                    std::thread::spawn(move || {
-                        let path =
-                            super::art_worker::download_art(video_id_clone.clone(), thumbnail);
-                        let _ = tx_clone.send(AudioCommand::ArtReady {
-                            title: title_clone,
-                            artist: artist_clone,
-                            path,
-                        });
-                    });
-                }
-                AudioCommand::ArtReady {
-                    title,
-                    artist,
-                    path,
-                } => {
-                    // Update MPRIS with local art path
-                    let path_buf = path.clone();
-                    if let Some(ref mut c) = controls {
-                        let mut metadata = MediaMetadata {
-                            title: Some(&title),
-                            artist: Some(&artist),
-                            album: None,
-                            cover_url: None,
-                            duration: Some(Duration::from_millis(
-                                duration_ms.load(Ordering::Relaxed),
-                            )),
+                            cover_url: Some(&thumbnail),
+                            duration: Some(Duration::from_millis(duration_ms.load(Ordering::Relaxed))),
                         };
-
-                        let path_str;
-                        if let Some(ref p) = path_buf {
-                            if let Some(s) = p.to_str() {
-                                path_str = format!("file://{}", s);
-                                metadata.cover_url = Some(&path_str);
-                            }
-                        }
                         let _ = c.set_metadata(metadata);
                     }
 
-                    // Trigger system notification
-                    super::art_worker::trigger_notification(&app, &title, &artist, path);
+                    // Trigger system notification immediately with URL
+                    super::art_worker::trigger_notification(&app, &title, &artist, Some(thumbnail));
                 }
             }
         }

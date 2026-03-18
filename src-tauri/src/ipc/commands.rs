@@ -102,7 +102,6 @@ pub async fn play_track(
 
     audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
     audio.send(AudioCommand::UpdateMetadata { 
-        video_id: track_id.clone(), 
         title, 
         artist, 
         thumbnail,
