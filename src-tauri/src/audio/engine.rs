@@ -620,7 +620,6 @@ fn start_streaming(
         expected_path.display()
     );
 
-
     let file = std::fs::File::open(&expected_path)
         .map_err(crate::error::AppError::Io)?;
     let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.

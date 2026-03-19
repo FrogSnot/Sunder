@@ -1,6 +1,7 @@
 <script lang="ts">
   import { pause, resume, stop, playTrack, search } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
+  import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
   import VolumeControl from "./VolumeControl.svelte";
   import Equalizer from "./Equalizer.svelte";
@@ -178,6 +179,18 @@
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3M9 22h6" />
+          </svg>
+        </button>
+        <button
+          class="ctrl-btn ctrl-sm"
+          class:active-toggle={config.current.notifications_enabled}
+          onclick={() => config.update({ notifications_enabled: !config.current.notifications_enabled })}
+          aria-label="Notifications"
+          title="Notifications"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
           </svg>
         </button>
         <span class="time-display">

@@ -4,12 +4,14 @@ export interface AppConfig {
   volume: number;
   eq_enabled: boolean;
   eq_gains: number[];
+  notifications_enabled: boolean;
 }
 
 const defaults: AppConfig = {
   volume: 0.8,
   eq_enabled: false,
   eq_gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  notifications_enabled: true,
 };
 
 class ConfigState {

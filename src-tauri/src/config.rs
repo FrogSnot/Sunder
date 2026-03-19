@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppConfig {
     pub volume: f64,
     pub eq_enabled: bool,
