@@ -202,6 +202,7 @@ fn audio_thread(
     let mut last_mpris_pos: u64 = 0;
     let mut last_emit_state: Option<PlaybackState> = None;
     let mut last_emit_pos: u64 = 0;
+    let mut last_emit_vol: f32 = 0.0;
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(50));
@@ -230,7 +231,7 @@ fn audio_thread(
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
                     active_id = Some(video_id.clone());
-                    emit_state(&app, &state, &position_ms, &duration_ms);
+                    emit_state(&app, &state, &position_ms, &duration_ms, &volume);
 
                     let app_clone = app.clone();
                     let state_clone = state.clone();
@@ -285,7 +286,7 @@ fn audio_thread(
                         position_ms.store(0, Ordering::Release);
                         sink = Some(new_sink);
                         *state.write().unwrap() = PlaybackState::Playing;
-                        emit_state(&app, &state, &position_ms, &duration_ms);
+                        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                     }
                 }
                 AudioCommand::LoadFailed {
@@ -296,7 +297,7 @@ fn audio_thread(
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
                         active_id = None;
-                        emit_state(&app, &state, &position_ms, &duration_ms);
+                        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                         let _ = app.emit(
                             "playback-error",
                             serde_json::json!({
@@ -331,6 +332,7 @@ fn audio_thread(
                     if let Some(ref s) = sink {
                         s.set_volume(v);
                     }
+                    emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                 }
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
@@ -433,15 +435,18 @@ fn audio_thread(
             let _ = app.emit("track-finished", ());
         }
 
-        // Only emit when state or position actually changed (debounce 200ms)
+        // Only emit when state, position, or volume actually changed (debounce 200ms)
         let cur_state = state.read().unwrap().clone();
         let cur_pos = position_ms.load(Ordering::Relaxed);
+        let cur_vol = *volume.read().unwrap();
         let state_changed = last_emit_state.as_ref() != Some(&cur_state);
         let pos_changed = cur_pos.abs_diff(last_emit_pos) > 200;
-        if state_changed || pos_changed {
-            emit_state(&app, &state, &position_ms, &duration_ms);
+        let vol_changed = (cur_vol - last_emit_vol).abs() > 0.001;
+        if state_changed || pos_changed || vol_changed {
+            emit_state(&app, &state, &position_ms, &duration_ms, &volume);
             last_emit_state = Some(cur_state);
             last_emit_pos = cur_pos;
+            last_emit_vol = cur_vol;
         }
     }
 }
@@ -641,6 +646,7 @@ struct ProgressPayload {
     position_ms: u64,
     duration_ms: u64,
     state: String,
+    volume: f32,
 }
 
 fn emit_state(
@@ -648,6 +654,7 @@ fn emit_state(
     state: &Arc<RwLock<PlaybackState>>,
     position_ms: &Arc<AtomicU64>,
     duration_ms: &Arc<AtomicU64>,
+    volume: &Arc<RwLock<f32>>,
 ) {
     let _ = app.emit(
         "playback-progress",
@@ -655,6 +662,7 @@ fn emit_state(
             position_ms: position_ms.load(Ordering::Relaxed),
             duration_ms: duration_ms.load(Ordering::Relaxed),
             state: state.read().unwrap().to_string(),
+            volume: *volume.read().unwrap(),
         },
     );
 }
