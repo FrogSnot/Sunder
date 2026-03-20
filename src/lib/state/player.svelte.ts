@@ -1,5 +1,5 @@
 import type { Track, PlaybackProgress } from "../types";
-import { prefetchTrack } from "../ipc/bridge";
+import { prefetchTrack, setRepeatMode } from "../ipc/bridge";
 
 const PREFETCH_AHEAD = 2;
 
@@ -115,6 +115,7 @@ class PlayerState {
     } else {
       this.repeatMode = "off";
     }
+    setRepeatMode(this.repeatMode).catch(() => {});
   }
 
   prevTrack(manual = false): Track | null {

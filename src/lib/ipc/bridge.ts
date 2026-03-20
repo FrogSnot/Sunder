@@ -143,6 +143,10 @@ export async function getEqSettings(): Promise<EqSettings> {
   return invoke<EqSettings>("get_eq_settings");
 }
 
+export async function setRepeatMode(mode: "off" | "queue" | "track"): Promise<void> {
+  await invoke("set_repeat_mode", { mode });
+}
+
 export function initProgressListener(): () => void {
   let unlistenProgress: (() => void) | undefined;
   let unlistenDownload: (() => void) | undefined;

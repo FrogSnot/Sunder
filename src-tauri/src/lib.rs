@@ -127,6 +127,7 @@ pub fn run() {
             ipc::commands::get_eq_settings,
             ipc::commands::get_config,
             ipc::commands::set_config,
+            ipc::commands::set_repeat_mode,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");
