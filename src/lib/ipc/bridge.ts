@@ -148,6 +148,9 @@ export function initProgressListener(): () => void {
   let unlistenDownload: (() => void) | undefined;
   let unlistenFinished: (() => void) | undefined;
   let unlistenError: (() => void) | undefined;
+  let unlistenNext: (() => void) | undefined;
+  let unlistenPrev: (() => void) | undefined;
+  let unlistenToggle: (() => void) | undefined;
 
   listen<PlaybackProgress>("playback-progress", (event) => {
     player.updateFromProgress(event.payload);
@@ -179,11 +182,30 @@ export function initProgressListener(): () => void {
     }
   }).then((fn) => { unlistenError = fn; });
 
+  listen("media-next", () => {
+    playNext();
+  }).then((fn) => { unlistenNext = fn; });
+
+  listen("media-previous", () => {
+    playPrev();
+  }).then((fn) => { unlistenPrev = fn; });
+
+  listen("media-toggle", () => {
+    if (player.isPlaying) {
+      pause();
+    } else {
+      resume();
+    }
+  }).then((fn) => { unlistenToggle = fn; });
+
   return () => {
     unlistenProgress?.();
     unlistenDownload?.();
     unlistenFinished?.();
     unlistenError?.();
+    unlistenNext?.();
+    unlistenPrev?.();
+    unlistenToggle?.();
   };
 }
 
