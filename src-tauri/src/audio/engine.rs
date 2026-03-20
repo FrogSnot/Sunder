@@ -359,6 +359,11 @@ fn audio_thread(
                         let _ = c.set_metadata(metadata);
                     }
 
+                    // Re-emit loop status on metadata updates to ensure UI capabilities (CanLoop) are refreshed
+                    // Since we don't have the current mode here (it's in the frontend), we'll just emit "off"
+                    // which announces CanLoop: true. When the user eventually cycles it, the real mode will be sent.
+                    emit_loop_status("off");
+
                     // Trigger system notification directly
                     super::art_worker::trigger_notification(&app, &title, &artist);
                 }
@@ -692,6 +697,18 @@ fn emit_loop_status(mode: &str) {
         changed.insert(
             "LoopStatus".to_owned(),
             dbus::arg::Variant(Box::new(loop_status.to_owned())),
+        );
+        changed.insert(
+            "CanLoop".to_owned(),
+            dbus::arg::Variant(Box::new(true)),
+        );
+        changed.insert(
+            "CanShuffle".to_owned(),
+            dbus::arg::Variant(Box::new(true)),
+        );
+        changed.insert(
+            "Shuffle".to_owned(),
+            dbus::arg::Variant(Box::new(false)),
         );
         let invalidated: Vec<String> = Vec::new();
 
