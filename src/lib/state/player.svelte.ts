@@ -39,6 +39,7 @@ class PlayerState {
     }
     this.duration = p.duration_ms / 1000;
     this.playbackState = p.state;
+    this.volume = p.volume;
     this.isPlaying = p.state === "playing";
     this.isBuffering = p.state === "buffering" || p.state === "loading";
     if (this.isPlaying) {
