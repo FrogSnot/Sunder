@@ -675,7 +675,8 @@ fn parse_download_pct(line: &str) -> Option<f64> {
 }
 
 /// Emit an MPRIS `PropertiesChanged` signal for `LoopStatus` on the session D-Bus.
-/// `mode` should be "None", "Track", or "Playlist" per the MPRIS spec.
+/// `mode` is Sunder's internal representation ("off", "queue", "track"), which is mapped
+/// to MPRIS values ("None", "Playlist", "Track") respectively.
 /// Compiled only on Linux; a no-op elsewhere.
 fn emit_loop_status(mode: &str) {
     #[cfg(target_os = "linux")]
@@ -704,8 +705,9 @@ fn emit_loop_status(mode: &str) {
         );
         changed.insert(
             "CanShuffle".to_owned(),
-            dbus::arg::Variant(Box::new(true)),
+            dbus::arg::Variant(Box::new(false)),
         );
+        // TODO: Flip CanShuffle to true once the shuffle feature is implemented.
         changed.insert(
             "Shuffle".to_owned(),
             dbus::arg::Variant(Box::new(false)),
