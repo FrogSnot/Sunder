@@ -151,7 +151,6 @@ fn audio_thread(
     };
     eprintln!("[sunder] audio thread started, output device ready");
     let mut active_id: Option<String> = None;
-    let mut current_repeat_mode = "off".to_string();
     let mut sink: Option<Sink> = None;
 
     let mut controls = match MediaControls::new(PlatformConfig {
@@ -359,16 +358,11 @@ fn audio_thread(
                         let _ = c.set_metadata(metadata);
                     }
 
-                    // Re-emit loop status on metadata updates to ensure UI capabilities (CanLoop) are refreshed
-                    // Using the stored current_repeat_mode ensures MPRIS stays in sync with user selection.
-                    emit_loop_status(&current_repeat_mode);
-
                     // Trigger system notification directly
                     super::art_worker::trigger_notification(&app, &title, &artist);
                 }
-                AudioCommand::SetRepeat(mode) => {
-                    current_repeat_mode = mode;
-                    emit_loop_status(&current_repeat_mode);
+                AudioCommand::SetRepeat(_mode) => {
+                    // Stored for future MPRIS LoopStatus integration
                 }
             }
         }
@@ -672,61 +666,4 @@ fn parse_download_pct(line: &str) -> Option<f64> {
     let content = line.trim().strip_prefix("[download]")?;
     let pct_end = content.find('%')?;
     content[..pct_end].trim().parse::<f64>().ok()
-}
-
-/// Emit an MPRIS `PropertiesChanged` signal for `LoopStatus` on the session D-Bus.
-/// `mode` is Sunder's internal representation ("off", "queue", "track"), which is mapped
-/// to MPRIS values ("None", "Playlist", "Track") respectively.
-/// Compiled only on Linux; a no-op elsewhere.
-fn emit_loop_status(mode: &str) {
-    #[cfg(target_os = "linux")]
-    {
-        use dbus::channel::Sender;
-
-        // Map Sunder's mode names to MPRIS LoopStatus values
-        let loop_status = match mode {
-            "track" => "Track",
-            "queue"  => "Playlist",
-            _        => "None",
-        };
-
-        let Ok(conn) = dbus::blocking::Connection::new_session() else { return };
-
-        // Build and send a PropertiesChanged signal for org.mpris.MediaPlayer2.Player
-        use dbus::arg::PropMap;
-        let mut changed: PropMap = PropMap::new();
-        changed.insert(
-            "LoopStatus".to_owned(),
-            dbus::arg::Variant(Box::new(loop_status.to_owned())),
-        );
-        changed.insert(
-            "CanLoop".to_owned(),
-            dbus::arg::Variant(Box::new(true)),
-        );
-        changed.insert(
-            "CanShuffle".to_owned(),
-            dbus::arg::Variant(Box::new(false)),
-        );
-        // TODO: Flip CanShuffle to true once the shuffle feature is implemented.
-        changed.insert(
-            "Shuffle".to_owned(),
-            dbus::arg::Variant(Box::new(false)),
-        );
-        let invalidated: Vec<String> = Vec::new();
-
-        let msg = dbus::Message::signal(
-            &dbus::Path::new("/org/mpris/MediaPlayer2").unwrap(),
-            &dbus::strings::Interface::new("org.freedesktop.DBus.Properties").unwrap(),
-            &dbus::strings::Member::new("PropertiesChanged").unwrap(),
-        )
-        .append3(
-            "org.mpris.MediaPlayer2.Player",
-            changed,
-            invalidated,
-        );
-
-        let _ = conn.send(msg);
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = mode;
 }
