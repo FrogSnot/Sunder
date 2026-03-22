@@ -343,7 +343,9 @@ fn audio_thread(
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
-                        *state.write().unwrap() = PlaybackState::Paused;
+                        // Keep state as Playing (or current) during fade-out
+                        // state is NOT updated here immediately to avoid breaking end-of-track detection
+                        let state_clone = state.clone();
                         current_fade = Some(tauri::async_runtime::spawn(async move {
                             let start_vol = s.volume();
                             let steps = 10;
@@ -352,6 +354,7 @@ fn audio_thread(
                                 tokio::time::sleep(Duration::from_millis(20)).await;
                             }
                             s.pause();
+                            *state_clone.write().unwrap() = PlaybackState::Paused;
                         }));
                     }
                 }
@@ -377,6 +380,9 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Stop => {
+                    // Invalidate current session to reject any pending loader results
+                    current_session.fetch_add(1, Ordering::SeqCst);
+
                     if let Some(s) = sink.take() {
                         if let Some(f) = current_fade.take() {
                             f.abort();
