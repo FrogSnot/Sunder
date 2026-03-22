@@ -153,7 +153,7 @@ fn audio_thread(
     eprintln!("[sunder] audio thread started, output device ready");
     let mut active_id: Option<String> = None;
     let mut sink: Option<Arc<Sink>> = None;
-    let mut current_fade: Option<tokio::task::JoinHandle<()>> = None;
+    let mut current_fade: Option<tauri::async_runtime::JoinHandle<()>> = None;
 
     let mut controls = match MediaControls::new(PlatformConfig {
         dbus_name: "sunder",
@@ -229,7 +229,7 @@ fn audio_thread(
                             f.abort();
                         }
                         let s_clone = s.clone();
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             let start_vol = s_clone.volume();
                             let steps = 5;
                             for i in (0..steps).rev() {
@@ -308,7 +308,7 @@ fn audio_thread(
                         *state.write().unwrap() = PlaybackState::Playing;
 
                         let volume_handle = volume.clone();
-                        current_fade = Some(tokio::spawn(async move {
+                        current_fade = Some(tauri::async_runtime::spawn(async move {
                             let steps = 15;
                             for i in 1..=steps {
                                 let vol_target = *volume_handle.read().unwrap();
@@ -344,7 +344,7 @@ fn audio_thread(
                             f.abort();
                         }
                         let state_clone = state.clone();
-                        current_fade = Some(tokio::spawn(async move {
+                        current_fade = Some(tauri::async_runtime::spawn(async move {
                             let start_vol = s.volume();
                             let steps = 10;
                             for i in (0..steps).rev() {
@@ -366,7 +366,7 @@ fn audio_thread(
                         *state.write().unwrap() = PlaybackState::Playing;
 
                         let volume_handle = volume.clone();
-                        current_fade = Some(tokio::spawn(async move {
+                        current_fade = Some(tauri::async_runtime::spawn(async move {
                             let steps = 10;
                             for i in 1..=steps {
                                 let vol_target = *volume_handle.read().unwrap();
@@ -381,7 +381,7 @@ fn audio_thread(
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             let start_vol = s.volume();
                             let steps = 10;
                             for i in (0..steps).rev() {
