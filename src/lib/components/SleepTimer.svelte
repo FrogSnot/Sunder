@@ -25,16 +25,46 @@
   function closeMenu() {
     showMenu = false;
   }
-</script>
 
-<svelte:window onclick={closeMenu} />
+  let menuRef = $state<HTMLElement | null>(null);
+
+  $effect(() => {
+    if (showMenu) {
+      window.addEventListener("click", closeMenu);
+      if (menuRef) menuRef.focus();
+      return () => window.removeEventListener("click", closeMenu);
+    }
+  });
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      closeMenu();
+      return;
+    }
+
+    if (!menuRef) return;
+    const items = Array.from(menuRef.querySelectorAll<HTMLButtonElement>(".menu-item"));
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % items.length;
+      items[nextIndex].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + items.length) % items.length;
+      items[prevIndex].focus();
+    }
+  }
+</script>
 
 <div class="sleep-timer">
   {#if showMenu}
     <div
+      bind:this={menuRef}
       class="timer-menu"
       onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.key === "Escape" && closeMenu()}
+      onkeydown={handleKeydown}
       role="menu"
       tabindex="-1"
     >
@@ -44,6 +74,7 @@
           class="menu-item"
           class:active={preset.value === 0 ? player.sleepTimerSetMinutes === null : player.sleepTimerSetMinutes === preset.value}
           onclick={() => handleSelect(preset.value)}
+          role="menuitem"
         >
           {preset.label}
         </button>

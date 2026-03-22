@@ -23,7 +23,7 @@ class PlayerState {
   findingAlt = $state(false);
   sleepTimerRemaining = $state<number | null>(null);
   sleepTimerSetMinutes = $state<number | null>(null);
-  sleepTimerHandle = $state<any | null>(null);
+  sleepTimerHandle = $state<ReturnType<typeof setInterval> | null>(null);
 
   eqEnabled = $state(false);
   eqGains = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -202,6 +202,11 @@ class PlayerState {
         this.sleepTimerRemaining--;
         if (this.sleepTimerRemaining === 0) {
           stop().catch(() => {});
+          this.isPlaying = false;
+          this.isBuffering = false;
+          this.currentTime = 0;
+          this.duration = 0;
+          this.playbackState = "stopped";
           this.clearSleepTimer();
         }
       } else {
