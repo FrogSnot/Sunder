@@ -367,6 +367,7 @@ fn audio_thread(
                         }
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
+                        emit_state(&app, &state, &position_ms, &duration_ms, &volume);
 
                         let volume_handle = volume.clone();
                         current_fade = Some(tauri::async_runtime::spawn(async move {
@@ -402,6 +403,7 @@ fn audio_thread(
                     *state.write().unwrap() = PlaybackState::Stopped;
                     active_id = None;
                     position_ms.store(0, Ordering::Release);
+                    emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                 }
                 AudioCommand::SetVolume(v) => {
                     *volume.write().unwrap() = v;
