@@ -8,6 +8,7 @@ use std::time::Duration;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use tauri::{Emitter, Manager};
+use tokio;
 
 /// Wrapper to send a raw HWND pointer across threads.
 /// SAFETY: The HWND outlives the audio thread (it's the main window).
@@ -151,7 +152,8 @@ fn audio_thread(
     };
     eprintln!("[sunder] audio thread started, output device ready");
     let mut active_id: Option<String> = None;
-    let mut sink: Option<Sink> = None;
+    let mut sink: Option<Arc<Sink>> = None;
+    let mut current_fade: Option<tokio::task::JoinHandle<()>> = None;
 
     let mut controls = match MediaControls::new(PlatformConfig {
         dbus_name: "sunder",
@@ -222,9 +224,20 @@ fn audio_thread(
         for cmd in cmds {
             match cmd {
                 AudioCommand::Play { video_id, duration_ms: dur } => {
-                    // Stop the old sink immediately to free decoded audio memory
                     if let Some(s) = sink.take() {
-                        s.stop();
+                        if let Some(f) = current_fade.take() {
+                            f.abort();
+                        }
+                        let s_clone = s.clone();
+                        tokio::spawn(async move {
+                            let start_vol = s_clone.volume();
+                            let steps = 5;
+                            for i in (0..steps).rev() {
+                                s_clone.set_volume(start_vol * (i as f32 / steps as f32));
+                                tokio::time::sleep(Duration::from_millis(20)).await;
+                            }
+                            s_clone.stop();
+                        });
                     }
                     let session_id = current_session.fetch_add(1, Ordering::SeqCst) + 1;
                     *state.write().unwrap() = PlaybackState::Loading;
@@ -275,17 +288,35 @@ fn audio_thread(
                 }
                 AudioCommand::Prepared {
                     session_id,
-                    sink: new_sink,
+                    sink: new_sink_raw,
                     duration_ms: dur,
                 } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
                         if let Some(s) = sink.take() {
                             s.stop();
                         }
+                        if let Some(f) = current_fade.take() {
+                            f.abort();
+                        }
+
+                        let new_sink = Arc::new(new_sink_raw);
+                        new_sink.set_volume(0.0);
+
                         duration_ms.store(dur, Ordering::Release);
                         position_ms.store(0, Ordering::Release);
-                        sink = Some(new_sink);
+                        sink = Some(new_sink.clone());
                         *state.write().unwrap() = PlaybackState::Playing;
+
+                        let volume_handle = volume.clone();
+                        current_fade = Some(tokio::spawn(async move {
+                            let steps = 15;
+                            for i in 1..=steps {
+                                let vol_target = *volume_handle.read().unwrap();
+                                new_sink.set_volume(vol_target * (i as f32 / steps as f32));
+                                tokio::time::sleep(Duration::from_millis(20)).await;
+                            }
+                        }));
+
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                     }
                 }
@@ -308,20 +339,57 @@ fn audio_thread(
                     }
                 }
                 AudioCommand::Pause => {
-                    if let Some(ref s) = sink {
-                        s.pause();
-                        *state.write().unwrap() = PlaybackState::Paused;
+                    if let Some(s) = sink.clone() {
+                        if let Some(f) = current_fade.take() {
+                            f.abort();
+                        }
+                        let state_clone = state.clone();
+                        current_fade = Some(tokio::spawn(async move {
+                            let start_vol = s.volume();
+                            let steps = 10;
+                            for i in (0..steps).rev() {
+                                s.set_volume(start_vol * (i as f32 / steps as f32));
+                                tokio::time::sleep(Duration::from_millis(25)).await;
+                            }
+                            s.pause();
+                            *state_clone.write().unwrap() = PlaybackState::Paused;
+                        }));
                     }
                 }
                 AudioCommand::Resume => {
-                    if let Some(ref s) = sink {
+                    if let Some(s) = sink.clone() {
+                        if let Some(f) = current_fade.take() {
+                            f.abort();
+                        }
+                        s.set_volume(0.0);
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
+
+                        let volume_handle = volume.clone();
+                        current_fade = Some(tokio::spawn(async move {
+                            let steps = 10;
+                            for i in 1..=steps {
+                                let vol_target = *volume_handle.read().unwrap();
+                                s.set_volume(vol_target * (i as f32 / steps as f32));
+                                tokio::time::sleep(Duration::from_millis(25)).await;
+                            }
+                        }));
                     }
                 }
                 AudioCommand::Stop => {
                     if let Some(s) = sink.take() {
-                        s.stop();
+                        if let Some(f) = current_fade.take() {
+                            f.abort();
+                        }
+                        tokio::spawn(async move {
+                            let start_vol = s.volume();
+                            let steps = 10;
+                            for i in (0..steps).rev() {
+                                s.set_volume(start_vol * (i as f32 / steps as f32));
+                                tokio::time::sleep(Duration::from_millis(20)).await;
+                            }
+                            s.stop();
+                        });
                     }
                     *state.write().unwrap() = PlaybackState::Stopped;
                     active_id = None;
@@ -330,7 +398,9 @@ fn audio_thread(
                 AudioCommand::SetVolume(v) => {
                     *volume.write().unwrap() = v;
                     if let Some(ref s) = sink {
-                        s.set_volume(v);
+                        if current_fade.is_none() {
+                            s.set_volume(v);
+                        }
                     }
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                 }
@@ -431,6 +501,9 @@ fn audio_thread(
         if track_ended {
             if let Some(s) = sink.take() {
                 s.stop();
+            }
+            if let Some(f) = current_fade.take() {
+                f.abort();
             }
             *state.write().unwrap() = PlaybackState::Idle;
             active_id = None;
@@ -628,8 +701,7 @@ fn start_streaming(
         expected_path.display()
     );
 
-    let file = std::fs::File::open(&expected_path)
-        .map_err(crate::error::AppError::Io)?;
+    let file = std::fs::File::open(&expected_path).map_err(crate::error::AppError::Io)?;
     let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
