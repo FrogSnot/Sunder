@@ -78,20 +78,31 @@
   .timer-btn {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
+    width: 32px;
     height: 32px;
-    padding: 0 8px;
-    border-radius: var(--radius-sm);
+    border-radius: 50%;
+    background: var(--bg-overlay);
     color: var(--text-secondary);
-    transition: all var(--transition);
+    transition: all var(--transition), width 300ms var(--ease-out-expo);
+    overflow: hidden;
   }
 
   .timer-btn:hover {
-    background: var(--bg-overlay);
+    background: var(--bg-elevated);
     color: var(--text-primary);
+    transform: scale(1.08);
+  }
+
+  .timer-btn:active {
+    transform: scale(0.92);
   }
 
   .timer-btn.active {
+    width: auto;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
     color: var(--accent);
     background: var(--bg-overlay);
   }
@@ -99,12 +110,14 @@
   .timer-btn svg {
     width: 14px;
     height: 14px;
+    flex-shrink: 0;
   }
 
   .timer-text {
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
-    font-weight: 500;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .timer-menu {
