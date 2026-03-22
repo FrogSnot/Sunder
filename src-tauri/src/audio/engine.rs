@@ -205,6 +205,9 @@ fn audio_thread(
     let mut last_emit_state: Option<PlaybackState> = None;
     let mut last_emit_pos: u64 = 0;
     let mut last_emit_vol: f32 = 0.0;
+    
+    // Counter to track the current active fade and reject stale tasks
+    let current_fade_token = Arc::new(AtomicUsize::new(0));
 
     loop {
         let first = rx.recv_timeout(Duration::from_millis(10));
@@ -225,6 +228,7 @@ fn audio_thread(
             match cmd {
                 AudioCommand::Play { video_id, duration_ms: dur } => {
                     if let Some(s) = sink.take() {
+                        current_fade_token.fetch_add(1, Ordering::SeqCst);
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
@@ -295,6 +299,7 @@ fn audio_thread(
                         if let Some(s) = sink.take() {
                             s.stop();
                         }
+                        let fade_token = current_fade_token.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
@@ -308,9 +313,14 @@ fn audio_thread(
                         *state.write().unwrap() = PlaybackState::Playing;
 
                         let volume_handle = volume.clone();
+                        let token_handle = current_fade_token.clone();
                         current_fade = Some(tauri::async_runtime::spawn(async move {
                             let steps = 10;
                             for i in 1..=steps {
+                                // Interruption check
+                                if token_handle.load(Ordering::SeqCst) != fade_token {
+                                    return;
+                                }
                                 let vol_target = *volume_handle.read().unwrap();
                                 new_sink.set_volume(vol_target * (i as f32 / steps as f32));
                                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -340,6 +350,7 @@ fn audio_thread(
                 }
                 AudioCommand::Pause => {
                     if let Some(s) = sink.clone() {
+                        let fade_token = current_fade_token.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
@@ -348,20 +359,31 @@ fn audio_thread(
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume);
 
                         let state_clone = state.clone();
+                        let token_handle = current_fade_token.clone();
                         current_fade = Some(tauri::async_runtime::spawn(async move {
                             let start_vol = s.volume();
                             let steps = 10;
                             for i in (0..steps).rev() {
+                                // Interruption check
+                                if token_handle.load(Ordering::SeqCst) != fade_token {
+                                    return;
+                                }
                                 s.set_volume(start_vol * (i as f32 / steps as f32));
                                 tokio::time::sleep(Duration::from_millis(10)).await;
                             }
-                            s.pause();
-                            *state_clone.write().unwrap() = PlaybackState::Paused;
+                            // Final check before state update and audio terminal action
+                            if token_handle.load(Ordering::SeqCst) == fade_token {
+                                s.pause();
+                                *state_clone.write().unwrap() = PlaybackState::Paused;
+                                // Periodic state emission is handled by the loop, 
+                                // but we could emit here for extreme snappiness if needed.
+                            }
                         }));
                     }
                 }
                 AudioCommand::Resume => {
                     if let Some(s) = sink.clone() {
+                        let fade_token = current_fade_token.fetch_add(1, Ordering::SeqCst) + 1;
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
@@ -385,6 +407,7 @@ fn audio_thread(
                 AudioCommand::Stop => {
                     // Invalidate current session to reject any pending loader results
                     current_session.fetch_add(1, Ordering::SeqCst);
+                    current_fade_token.fetch_add(1, Ordering::SeqCst);
 
                     if let Some(s) = sink.take() {
                         if let Some(f) = current_fade.take() {
