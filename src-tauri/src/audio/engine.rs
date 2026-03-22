@@ -343,16 +343,15 @@ fn audio_thread(
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
-                        let state_clone = state.clone();
+                        *state.write().unwrap() = PlaybackState::Paused;
                         current_fade = Some(tauri::async_runtime::spawn(async move {
                             let start_vol = s.volume();
                             let steps = 10;
                             for i in (0..steps).rev() {
                                 s.set_volume(start_vol * (i as f32 / steps as f32));
-                                tokio::time::sleep(Duration::from_millis(25)).await;
+                                tokio::time::sleep(Duration::from_millis(20)).await;
                             }
                             s.pause();
-                            *state_clone.write().unwrap() = PlaybackState::Paused;
                         }));
                     }
                 }
@@ -361,17 +360,18 @@ fn audio_thread(
                         if let Some(f) = current_fade.take() {
                             f.abort();
                         }
-                        s.set_volume(0.0);
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
 
                         let volume_handle = volume.clone();
                         current_fade = Some(tauri::async_runtime::spawn(async move {
+                            let start_vol = s.volume();
                             let steps = 10;
                             for i in 1..=steps {
                                 let vol_target = *volume_handle.read().unwrap();
-                                s.set_volume(vol_target * (i as f32 / steps as f32));
-                                tokio::time::sleep(Duration::from_millis(25)).await;
+                                let progress = i as f32 / steps as f32;
+                                s.set_volume(start_vol + (vol_target - start_vol) * progress);
+                                tokio::time::sleep(Duration::from_millis(20)).await;
                             }
                         }));
                     }
@@ -386,7 +386,7 @@ fn audio_thread(
                             let steps = 10;
                             for i in (0..steps).rev() {
                                 s.set_volume(start_vol * (i as f32 / steps as f32));
-                                tokio::time::sleep(Duration::from_millis(20)).await;
+                                tokio::time::sleep(Duration::from_millis(15)).await;
                             }
                             s.stop();
                         });
