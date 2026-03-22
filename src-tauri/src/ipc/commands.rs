@@ -190,9 +190,7 @@ pub async fn set_repeat_mode(mode: String, audio: State<'_, AudioHandle>) -> Res
         return Err(format!("Invalid repeat mode: {}", mode));
     }
     audio.send(AudioCommand::SetRepeat(mode));
-    // Until souvlaki supports LoopStatus or a proper D-Bus connection is found,
-    // we return an error to indicate that system media sync is not currently functional.
-    Err("MPRIS LoopStatus sync is currently unsupported".to_string())
+    Ok(())
 }
 
 #[tauri::command]
