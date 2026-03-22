@@ -470,7 +470,7 @@ fn audio_thread(
                     PlaybackState::Playing => {
                         let _ = c.set_playback(MediaPlayback::Playing { progress });
                     }
-                    PlaybackState::Paused => {
+                    PlaybackState::Paused | PlaybackState::Pausing => {
                         let _ = c.set_playback(MediaPlayback::Paused { progress });
                     }
                     PlaybackState::Stopped | PlaybackState::Idle => {
