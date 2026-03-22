@@ -87,6 +87,8 @@
     class:active={player.sleepTimerRemaining !== null}
     onclick={toggleMenu}
     aria-label="Sleep Timer"
+    aria-haspopup="menu"
+    aria-expanded={showMenu}
     title={player.sleepTimerRemaining !== null ? `Sleep Timer: ${player.formattedSleepTimer}` : "Sleep Timer"}
   >
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
