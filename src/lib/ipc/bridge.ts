@@ -57,6 +57,7 @@ export async function playNext(manual = false): Promise<void> {
 export async function playPrev(manual = false): Promise<void> {
   if (player.currentTime > 5.0) {
     await seek(0);
+    player.currentTime = 0;
     return;
   }
   const prev = player.prevTrack(manual);
