@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, search } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playPrev, search } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
