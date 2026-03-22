@@ -398,7 +398,10 @@ fn audio_thread(
                 AudioCommand::SetVolume(v) => {
                     *volume.write().unwrap() = v;
                     if let Some(ref s) = sink {
-                        s.set_volume(v);
+                        // Skip direct update if paused to allow Resume to ramp from 0.0
+                        if *state.read().unwrap() != PlaybackState::Paused {
+                            s.set_volume(v);
+                        }
                     }
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume);
                 }
@@ -532,7 +535,7 @@ fn start_streaming(
     video_id: &str,
     state: &Arc<RwLock<PlaybackState>>,
     stream_handle: &rodio::OutputStreamHandle,
-    volume: f32,
+    _volume: f32,
     eq_settings: &Arc<RwLock<EqSettings>>,
     app: &tauri::AppHandle,
 ) -> Result<Sink, crate::error::AppError> {
@@ -705,7 +708,7 @@ fn start_streaming(
 
     let sink =
         Sink::try_new(stream_handle).map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
-    sink.set_volume(volume);
+    sink.set_volume(0.0);
     sink.append(EqSource::new(
         decoder.convert_samples(),
         eq_settings.clone(),
