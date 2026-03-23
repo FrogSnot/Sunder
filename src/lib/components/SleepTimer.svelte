@@ -2,6 +2,7 @@
   import { player } from "../state/player.svelte";
 
   let showMenu = $state(false);
+  let customInput = $state("");
 
   const presets = [
     { label: "Off", value: 0 },
@@ -14,7 +15,21 @@
 
   function handleSelect(mins: number) {
     player.setSleepTimer(mins);
+    customInput = "";
     showMenu = false;
+  }
+
+  function handleCustomSubmit() {
+    const mins = parseInt(customInput, 10);
+    if (mins > 0 && mins <= 1440) {
+      handleSelect(mins);
+    }
+  }
+
+  function handleCustomKeydown(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "Enter") handleCustomSubmit();
+    if (e.key === "Escape") closeMenu();
   }
 
   function toggleMenu(e: MouseEvent) {
@@ -79,6 +94,20 @@
           {preset.label}
         </button>
       {/each}
+      <div class="custom-row">
+        <input
+          type="number"
+          class="custom-input"
+          placeholder="Min"
+          min="1"
+          max="1440"
+          bind:value={customInput}
+          onkeydown={handleCustomKeydown}
+        />
+        <button class="custom-btn" onclick={handleCustomSubmit} disabled={!customInput || parseInt(customInput, 10) <= 0}>
+          Set
+        </button>
+      </div>
     </div>
   {/if}
 
@@ -195,6 +224,68 @@
   .menu-item.active {
     color: var(--accent);
     font-weight: 600;
+  }
+
+  .custom-row {
+    display: flex;
+    gap: 4px;
+    padding: 6px 6px 4px;
+    border-top: 1px solid var(--bg-overlay);
+    margin-top: 2px;
+  }
+
+  .custom-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--bg-overlay);
+    outline: none;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 150ms ease;
+  }
+
+  .custom-input:focus {
+    border-color: var(--accent);
+  }
+
+  .custom-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* Hide number spinners */
+  .custom-input::-webkit-outer-spin-button,
+  .custom-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .custom-input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .custom-btn {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--accent-dim);
+    color: var(--accent-light);
+    transition: all 150ms ease;
+    white-space: nowrap;
+  }
+
+  .custom-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: #121212;
+  }
+
+  .custom-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   @keyframes scaleIn {
