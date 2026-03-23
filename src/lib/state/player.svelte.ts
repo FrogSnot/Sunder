@@ -1,5 +1,5 @@
 import type { Track, PlaybackProgress } from "../types";
-import { prefetchTrack, setRepeatMode } from "../ipc/bridge";
+import { prefetchTrack, setRepeatMode, stop } from "../ipc/bridge";
 
 const PREFETCH_AHEAD = 2;
 
@@ -21,6 +21,9 @@ class PlayerState {
   lastError = $state("");
   failedTrack = $state<Track | null>(null);
   findingAlt = $state(false);
+  sleepTimerRemaining = $state<number | null>(null);
+  sleepTimerSetMinutes = $state<number | null>(null);
+  private sleepTimerHandle: ReturnType<typeof setInterval> | null = null;
 
   eqEnabled = $state(false);
   eqGains = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -32,6 +35,7 @@ class PlayerState {
   progress = $derived(this.duration > 0 ? this.currentTime / this.duration : 0);
   formattedTime = $derived(formatTime(this.currentTime));
   formattedDuration = $derived(formatTime(this.duration));
+  formattedSleepTimer = $derived(this.sleepTimerRemaining !== null ? formatTime(this.sleepTimerRemaining) : "");
   hasNext = $derived(this.queueIndex < this.queue.length - 1 || (this.repeatMode === "queue" && this.queue.length > 0));
   hasPrev = $derived(this.queueIndex > 0 || (this.repeatMode === "queue" && this.queue.length > 0));
 
@@ -185,6 +189,39 @@ class PlayerState {
     this.queue = [];
     this.queueIndex = -1;
     this.shuffled = false;
+  }
+
+  setSleepTimer(minutes: number) {
+    this.clearSleepTimer();
+    if (minutes <= 0) return;
+
+    this.sleepTimerSetMinutes = minutes;
+    this.sleepTimerRemaining = minutes * 60;
+    this.sleepTimerHandle = setInterval(() => {
+      if (this.sleepTimerRemaining !== null && this.sleepTimerRemaining > 0) {
+        this.sleepTimerRemaining--;
+        if (this.sleepTimerRemaining === 0) {
+          stop().catch(() => {});
+          this.isPlaying = false;
+          this.isBuffering = false;
+          this.currentTime = 0;
+          this.duration = 0;
+          this.playbackState = "stopped";
+          this.clearSleepTimer();
+        }
+      } else {
+        this.clearSleepTimer();
+      }
+    }, 1000);
+  }
+
+  clearSleepTimer() {
+    if (this.sleepTimerHandle) {
+      clearInterval(this.sleepTimerHandle);
+      this.sleepTimerHandle = null;
+    }
+    this.sleepTimerRemaining = null;
+    this.sleepTimerSetMinutes = null;
   }
 }
 

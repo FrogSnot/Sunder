@@ -1,0 +1,295 @@
+<script lang="ts">
+  import { player } from "../state/player.svelte";
+
+  let showMenu = $state(false);
+  let customInput = $state("");
+
+  const presets = [
+    { label: "Off", value: 0 },
+    { label: "1 min", value: 1 },
+    { label: "15 min", value: 15 },
+    { label: "30 min", value: 30 },
+    { label: "45 min", value: 45 },
+    { label: "60 min", value: 60 },
+  ];
+
+  function handleSelect(mins: number) {
+    player.setSleepTimer(mins);
+    customInput = "";
+    showMenu = false;
+  }
+
+  function handleCustomSubmit() {
+    const mins = parseInt(customInput, 10);
+    if (mins > 0 && mins <= 1440) {
+      handleSelect(mins);
+    }
+  }
+
+  function handleCustomKeydown(e: KeyboardEvent) {
+    e.stopPropagation();
+    if (e.key === "Enter") handleCustomSubmit();
+    if (e.key === "Escape") closeMenu();
+  }
+
+  function toggleMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showMenu = !showMenu;
+  }
+
+  function closeMenu() {
+    showMenu = false;
+  }
+
+  let menuRef = $state<HTMLElement | null>(null);
+
+  $effect(() => {
+    if (showMenu) {
+      window.addEventListener("click", closeMenu);
+      if (menuRef) menuRef.focus();
+      return () => window.removeEventListener("click", closeMenu);
+    }
+  });
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      closeMenu();
+      return;
+    }
+
+    if (!menuRef) return;
+    const items = Array.from(menuRef.querySelectorAll<HTMLButtonElement>(".menu-item"));
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % items.length;
+      items[nextIndex].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + items.length) % items.length;
+      items[prevIndex].focus();
+    }
+  }
+</script>
+
+<div class="sleep-timer">
+  {#if showMenu}
+    <div
+      bind:this={menuRef}
+      class="timer-menu"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={handleKeydown}
+      role="menu"
+      tabindex="-1"
+    >
+      <div class="menu-header">Sleep Timer</div>
+      {#each presets as preset}
+        <button
+          class="menu-item"
+          class:active={preset.value === 0 ? player.sleepTimerSetMinutes === null : player.sleepTimerSetMinutes === preset.value}
+          onclick={() => handleSelect(preset.value)}
+          role="menuitem"
+        >
+          {preset.label}
+        </button>
+      {/each}
+      <div class="custom-row">
+        <input
+          type="number"
+          class="custom-input"
+          placeholder="Min"
+          min="1"
+          max="1440"
+          bind:value={customInput}
+          onkeydown={handleCustomKeydown}
+        />
+        <button class="custom-btn" onclick={handleCustomSubmit} disabled={!customInput || parseInt(customInput, 10) <= 0}>
+          Set
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <button
+    class="timer-btn"
+    class:active={player.sleepTimerRemaining !== null}
+    onclick={toggleMenu}
+    aria-label="Sleep Timer"
+    aria-haspopup="menu"
+    aria-expanded={showMenu}
+    title={player.sleepTimerRemaining !== null ? `Sleep Timer: ${player.formattedSleepTimer}` : "Sleep Timer"}
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+    {#if player.sleepTimerRemaining !== null}
+      <span class="timer-text">{player.formattedSleepTimer}</span>
+    {/if}
+  </button>
+</div>
+
+<style>
+  .sleep-timer {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .timer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-overlay);
+    color: var(--text-secondary);
+    transition: all var(--transition), width 300ms var(--ease-out-expo);
+    overflow: hidden;
+  }
+
+  .timer-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    transform: scale(1.08);
+  }
+
+  .timer-btn:active {
+    transform: scale(0.92);
+  }
+
+  .timer-btn.active {
+    width: auto;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    background: var(--bg-overlay);
+  }
+
+  .timer-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+
+  .timer-text {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .timer-menu {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    width: 140px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    animation: scaleIn 180ms var(--ease-out-expo);
+    transform-origin: bottom right;
+  }
+
+  .menu-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .menu-item {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    transition: all 150ms ease;
+  }
+
+  .menu-item:hover {
+    background: var(--bg-overlay);
+    transform: translateX(4px);
+  }
+
+  .menu-item.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .custom-row {
+    display: flex;
+    gap: 4px;
+    padding: 6px 6px 4px;
+    border-top: 1px solid var(--bg-overlay);
+    margin-top: 2px;
+  }
+
+  .custom-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--bg-overlay);
+    outline: none;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 150ms ease;
+  }
+
+  .custom-input:focus {
+    border-color: var(--accent);
+  }
+
+  .custom-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* Hide number spinners */
+  .custom-input::-webkit-outer-spin-button,
+  .custom-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .custom-input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .custom-btn {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--accent-dim);
+    color: var(--accent-light);
+    transition: all 150ms ease;
+    white-space: nowrap;
+  }
+
+  .custom-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: #121212;
+  }
+
+  .custom-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.92) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+</style>

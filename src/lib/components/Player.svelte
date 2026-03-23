@@ -5,6 +5,7 @@
   import ProgressBar from "./ProgressBar.svelte";
   import VolumeControl from "./VolumeControl.svelte";
   import Equalizer from "./Equalizer.svelte";
+  import SleepTimer from "./SleepTimer.svelte";
   import { lyricsState } from "../state/lyrics.svelte";
 
   async function togglePlay() {
@@ -213,6 +214,7 @@
             <path d="M13.73 21a2 2 0 0 1-3.46 0" />
           </svg>
         </button>
+        <SleepTimer />
         <span class="time-display">
           {player.formattedTime} / {player.formattedDuration}
         </span>
