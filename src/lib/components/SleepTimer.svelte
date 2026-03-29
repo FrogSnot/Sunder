@@ -124,6 +124,7 @@
       <circle cx="12" cy="12" r="10" />
       <polyline points="12 6 12 12 16 14" />
     </svg>
+    <span class="timer-label">Sleep Timer</span>
     {#if player.sleepTimerRemaining !== null}
       <span class="timer-text">{player.formattedSleepTimer}</span>
     {/if}
@@ -175,11 +176,27 @@
     flex-shrink: 0;
   }
 
+  .timer-label {
+    font-size: 0.85rem;
+    white-space: nowrap;
+    display: none;
+  }
+
+  :global(.more-menu-sleep) .timer-label {
+    display: inline;
+  }
+
   .timer-text {
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     white-space: nowrap;
+  }
+
+  :global(.more-menu-sleep) .timer-text {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: var(--accent);
   }
 
   .timer-menu {

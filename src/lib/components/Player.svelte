@@ -8,6 +8,9 @@
   import SleepTimer from "./SleepTimer.svelte";
   import { lyricsState } from "../state/lyrics.svelte";
 
+  let showMoreMenu = $state(false);
+  let moreMenuRef = $state<HTMLElement | null>(null);
+
   async function togglePlay() {
     if (player.isPlaying) {
       await pause();
@@ -32,6 +35,22 @@
   function handleRepeat() {
     player.cycleRepeat();
   }
+
+  function toggleMoreMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showMoreMenu = !showMoreMenu;
+  }
+
+  function closeMoreMenu() {
+    showMoreMenu = false;
+  }
+
+  $effect(() => {
+    if (showMoreMenu) {
+      window.addEventListener("click", closeMoreMenu);
+      return () => window.removeEventListener("click", closeMoreMenu);
+    }
+  });
 
   async function findAlternative() {
     const failed = player.failedTrack;
@@ -183,14 +202,6 @@
             {/if}
           </svg>
         </button>
-        <button class="ctrl-btn ctrl-sm" onclick={() => player.showEq = !player.showEq} aria-label="Equalizer" class:active-toggle={player.showEq}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
-            <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
-            <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
-            <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
-          </svg>
-        </button>
         <button
           class="ctrl-btn ctrl-sm"
           class:active-toggle={lyricsState.visible}
@@ -202,19 +213,65 @@
             <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3M9 22h6" />
           </svg>
         </button>
-        <button
-          class="ctrl-btn ctrl-sm"
-          class:active-toggle={config.current.notifications_enabled}
-          onclick={() => config.update({ notifications_enabled: !config.current.notifications_enabled })}
-          aria-label="Notifications"
-          title="Notifications"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-        </button>
-        <SleepTimer />
+        <div class="more-controls">
+          <button
+            class="ctrl-btn ctrl-sm"
+            class:active-toggle={showMoreMenu || player.showEq || player.sleepTimerRemaining !== null}
+            onclick={toggleMoreMenu}
+            aria-label="Playback Controls"
+            aria-haspopup="menu"
+            aria-expanded={showMoreMenu}
+            title="Playback Controls"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="5" r="1.5" fill="currentColor" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><circle cx="12" cy="19" r="1.5" fill="currentColor" />
+            </svg>
+          </button>
+          {#if showMoreMenu}
+            <div
+              bind:this={moreMenuRef}
+              class="more-menu"
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => { if (e.key === "Escape") closeMoreMenu(); }}
+              role="menu"
+              tabindex="-1"
+            >
+              <div class="more-menu-header">Playback Controls</div>
+              <button
+                class="more-menu-item"
+                class:active={player.showEq}
+                onclick={() => { player.showEq = !player.showEq; closeMoreMenu(); }}
+                role="menuitem"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+                  <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+                  <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
+                </svg>
+                <span>Equalizer</span>
+                {#if player.eqEnabled}<span class="more-badge">ON</span>{/if}
+              </button>
+              <button
+                class="more-menu-item"
+                class:active={config.current.notifications_enabled}
+                onclick={() => config.update({ notifications_enabled: !config.current.notifications_enabled })}
+                role="menuitem"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                <span>Notifications</span>
+                <span class="more-badge">{config.current.notifications_enabled ? "ON" : "OFF"}</span>
+              </button>
+              <div class="more-menu-divider"></div>
+              <div class="more-menu-sleep">
+                <SleepTimer />
+              </div>
+            </div>
+          {/if}
+        </div>
         <span class="time-display">
           {player.formattedTime} / {player.formattedDuration}
         </span>
@@ -498,5 +555,104 @@
     height: 14px;
     color: #e06c75;
     flex-shrink: 0;
+  }
+
+  .more-controls {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .more-menu {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    width: 200px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    animation: scaleIn 180ms var(--ease-out-expo);
+    transform-origin: bottom right;
+  }
+
+  .more-menu-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .more-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    transition: all 150ms ease;
+  }
+
+  .more-menu-item:hover {
+    background: var(--bg-overlay);
+  }
+
+  .more-menu-item.active {
+    color: var(--accent);
+  }
+
+  .more-menu-item svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  .more-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  .more-menu-divider {
+    height: 1px;
+    background: var(--bg-overlay);
+    margin: 4px 6px;
+  }
+
+  .more-menu-sleep {
+    padding: 4px 6px;
+  }
+
+  .more-menu-sleep :global(.sleep-timer) {
+    width: 100%;
+  }
+
+  .more-menu-sleep :global(.timer-btn) {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    height: auto;
+  }
+
+  .more-menu-sleep :global(.timer-btn svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  .more-menu-sleep :global(.timer-menu) {
+    left: 0;
+    right: auto;
+    bottom: calc(100% + 4px);
   }
 </style>
