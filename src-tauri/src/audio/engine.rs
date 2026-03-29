@@ -202,6 +202,7 @@ fn audio_thread(
                     _ => {}
                 }
             });
+            #[cfg(target_os = "linux")]
             let _ = c.set_volume(*volume.read().unwrap() as f64);
             Some(c)
         }
@@ -420,6 +421,7 @@ fn audio_thread(
                             }
                         }
                     }
+                    #[cfg(target_os = "linux")]
                     if let Some(ref mut c) = controls {
                         let _ = c.set_volume(v as f64);
                     }
