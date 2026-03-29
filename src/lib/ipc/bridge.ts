@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
@@ -155,6 +156,26 @@ export async function getEqSettings(): Promise<EqSettings> {
 
 export async function setRepeatMode(mode: "off" | "queue" | "track"): Promise<void> {
   await invoke("set_repeat_mode", { mode });
+}
+
+export async function exportPlaylist(playlistId: number, playlistName: string): Promise<boolean> {
+  const path = await save({
+    defaultPath: `${playlistName.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (!path) return false;
+  await invoke("export_playlist_json", { playlistId, path });
+  return true;
+}
+
+export async function importPlaylistJson(): Promise<Playlist | null> {
+  const path = await open({
+    filters: [{ name: "JSON", extensions: ["json"] }],
+    multiple: false,
+    directory: false,
+  });
+  if (!path) return null;
+  return invoke<Playlist>("import_playlist_json", { path });
 }
 
 export function initProgressListener(): () => void {

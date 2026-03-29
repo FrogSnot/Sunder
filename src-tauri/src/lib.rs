@@ -16,6 +16,7 @@ use extraction::Extractor;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -129,6 +130,8 @@ pub fn run() {
             ipc::commands::set_config,
             ipc::commands::set_repeat_mode,
             ipc::commands::set_speed,
+            ipc::commands::export_playlist_json,
+            ipc::commands::import_playlist_json,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

@@ -11,6 +11,8 @@
     renamePlaylist,
     playTrack,
     importYtPlaylist,
+    exportPlaylist,
+    importPlaylistJson,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
@@ -84,6 +86,27 @@
   function handleImportKeydown(e: KeyboardEvent) {
     if (e.key === "Enter") handleImport();
     if (e.key === "Escape") { showImportForm = false; importUrl = ""; }
+  }
+
+  async function handleExport() {
+    if (nav.activePlaylistId === null) return;
+    try {
+      const ok = await exportPlaylist(nav.activePlaylistId, nav.activePlaylistName ?? "playlist");
+      if (ok) toastState.add("Playlist exported", "info", 2000);
+    } catch (e) {
+      toastState.add(`Export failed: ${e}`, "error");
+    }
+  }
+
+  async function handleImportJson() {
+    try {
+      const p = await importPlaylistJson();
+      if (!p) return;
+      await refreshPlaylists();
+      toastState.add(`Imported "${p.name}" (${p.track_count} tracks)`, "info");
+    } catch (e) {
+      toastState.add(`Import failed: ${e}`, "error");
+    }
   }
 
   async function handleDelete(id: number) {
@@ -264,6 +287,14 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Play All
         </button>
+        <button class="export-btn" onclick={handleExport} aria-label="Export playlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Export
+        </button>
       {/if}
     </div>
 
@@ -324,7 +355,10 @@
         {creating ? "..." : "+ Create"}
       </button>
       <button class="import-link-btn" onclick={() => showImportForm = !showImportForm}>
-        {showImportForm ? "Cancel" : "Import Playlist"}
+        {showImportForm ? "Cancel" : "Import from YT"}
+      </button>
+      <button class="import-link-btn" onclick={handleImportJson}>
+        Import JSON
       </button>
     </div>
 
@@ -652,6 +686,28 @@
   }
 
   .play-all-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .export-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-overlay);
+    color: var(--text-secondary);
+    border-radius: var(--radius);
+    font-size: 0.82rem;
+    transition: background 200ms ease, color 150ms;
+  }
+
+  .export-btn:hover {
+    background: var(--hover-overlay);
+    color: var(--text-primary);
+  }
+
+  .export-btn svg {
     width: 14px;
     height: 14px;
   }

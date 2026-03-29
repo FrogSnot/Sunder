@@ -479,3 +479,52 @@ fn chrono_minute() -> usize {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     (secs / 60) as usize
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExportedPlaylist {
+    name: String,
+    tracks: Vec<Track>,
+}
+
+#[tauri::command]
+pub async fn export_playlist_json(
+    playlist_id: i64,
+    path: String,
+    db: State<'_, SearchCache>,
+) -> Result<(), String> {
+    let playlists = db.list_playlists().map_err(|e| e.to_string())?;
+    let playlist = playlists
+        .into_iter()
+        .find(|p| p.id == playlist_id)
+        .ok_or("Playlist not found")?;
+    let tracks = db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())?;
+    let exported = ExportedPlaylist {
+        name: playlist.name,
+        tracks,
+    };
+    let json = serde_json::to_string_pretty(&exported).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_playlist_json(
+    path: String,
+    db: State<'_, SearchCache>,
+) -> Result<Playlist, String> {
+    let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let imported: ExportedPlaylist = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    if imported.tracks.is_empty() {
+        return Err("No tracks in imported playlist".into());
+    }
+    let playlist = db.create_playlist(&imported.name, "").map_err(|e| e.to_string())?;
+    let _ = db.upsert_tracks(&imported.tracks);
+    for track in &imported.tracks {
+        let _ = db.add_to_playlist(playlist.id, &track.id);
+    }
+    Ok(Playlist {
+        id: playlist.id,
+        name: imported.name,
+        thumbnail: String::new(),
+        track_count: imported.tracks.len() as i64,
+    })
+}
