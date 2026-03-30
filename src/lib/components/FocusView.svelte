@@ -32,6 +32,7 @@
     align-items: center;
     justify-content: center;
     animation: fadeIn 400ms var(--ease-out-expo);
+    contain: layout style;
   }
 
   .focus-bg {
@@ -39,8 +40,10 @@
     inset: -40px;
     background-size: cover;
     background-position: center;
-    filter: blur(60px) brightness(0.3) saturate(1.4);
+    filter: blur(40px) brightness(0.3) saturate(1.4);
     transform: scale(1.2);
+    will-change: filter, transform;
+    image-rendering: auto;
   }
 
   .focus-content {

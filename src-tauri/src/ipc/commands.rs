@@ -273,6 +273,7 @@ pub async fn prefetch_track(
                 "--audio-quality", "2",
                 "-o", out_template.to_str().unwrap_or_default(),
                 "--no-playlist",
+                "--concurrent-fragments", "4",
                 "-q",
             ])
             .stdout(std::process::Stdio::null())

@@ -1,12 +1,15 @@
 <script lang="ts">
   import { playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
-  import { fly, slide } from "svelte/transition";
+  import { fly } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
+
+  const ROW_HEIGHT = 56;
+  const OVERSCAN = 10;
 
   let queue = $derived(player.queue);
   let currentIndex = $derived(player.queueIndex);
@@ -18,6 +21,63 @@
   let dragFrom = $state(-1);
   let dragOver = $state(-1);
   let dragging = $state(false);
+
+  // Virtual scroll state
+  let scrollContainer = $state<HTMLElement | null>(null);
+  let scrollTop = $state(0);
+  let viewportHeight = $state(600);
+
+  function onScroll() {
+    if (!scrollContainer) return;
+    scrollTop = scrollContainer.scrollTop;
+    viewportHeight = scrollContainer.clientHeight;
+  }
+
+  // Mount: find the .content scroll parent and listen to its scroll events
+  $effect(() => {
+    const el = document.querySelector('.content') as HTMLElement | null;
+    if (el && el !== scrollContainer) {
+      scrollContainer = el;
+      viewportHeight = el.clientHeight;
+      scrollTop = el.scrollTop;
+      el.addEventListener('scroll', onScroll, { passive: true });
+    }
+    return () => {
+      if (scrollContainer) scrollContainer.removeEventListener('scroll', onScroll);
+    };
+  });
+
+  // Virtual slice computation for "Next Up"
+  let upNextListEl = $state<HTMLElement | null>(null);
+  let upNextOffset = $derived.by(() => {
+    if (!upNextListEl || !scrollContainer) return 0;
+    return upNextListEl.offsetTop;
+  });
+
+  let upNextSlice = $derived.by(() => {
+    const total = upNext.length;
+    if (total <= 50) return { start: 0, end: total };
+    const relScroll = Math.max(0, scrollTop - upNextOffset);
+    const start = Math.max(0, Math.floor(relScroll / ROW_HEIGHT) - OVERSCAN);
+    const end = Math.min(total, Math.ceil((relScroll + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+    return { start, end };
+  });
+
+  // Virtual slice computation for "Played"
+  let playedListEl = $state<HTMLElement | null>(null);
+  let playedOffset = $derived.by(() => {
+    if (!playedListEl || !scrollContainer) return 0;
+    return playedListEl.offsetTop;
+  });
+
+  let playedSlice = $derived.by(() => {
+    const total = played.length;
+    if (total <= 50) return { start: 0, end: total };
+    const relScroll = Math.max(0, scrollTop - playedOffset);
+    const start = Math.max(0, Math.floor(relScroll / ROW_HEIGHT) - OVERSCAN);
+    const end = Math.min(total, Math.ceil((relScroll + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+    return { start, end };
+  });
 
   function formatDuration(secs: number): string {
     if (!secs) return "--:--";
@@ -137,17 +197,19 @@
 
     {#if upNext.length > 0}
       <div class="section-label next-label">Next Up <span class="section-count">{upNext.length}</span></div>
-      <div class="track-list">
-        {#each upNext as track, i (track.id)}
-          {@const queueIdx = currentIndex + 1 + i}
+      <div class="track-list" bind:this={upNextListEl}>
+        {#if upNextSlice.start > 0}
+          <div style="height: {upNextSlice.start * ROW_HEIGHT}px" aria-hidden="true"></div>
+        {/if}
+        {#each upNext.slice(upNextSlice.start, upNextSlice.end) as track, i (track.id)}
+          {@const ri = upNextSlice.start + i}
+          {@const queueIdx = currentIndex + 1 + ri}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="track-row"
             class:drag-over={dragging && dragOver === queueIdx && dragFrom !== queueIdx}
             class:dragging={dragging && dragFrom === queueIdx}
             data-idx={queueIdx}
-            in:fly={{ x: 24, duration: 200 }}
-            out:slide={{ duration: 180 }}
           >
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <span
@@ -158,7 +220,7 @@
             >
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
-            <span class="track-num">{i + 1}</span>
+            <span class="track-num">{ri + 1}</span>
             <button
               class="track-play"
               onclick={() => handlePlay(queueIdx)}
@@ -178,23 +240,28 @@
             </button>
           </div>
         {/each}
+        {#if upNextSlice.end < upNext.length}
+          <div style="height: {(upNext.length - upNextSlice.end) * ROW_HEIGHT}px" aria-hidden="true"></div>
+        {/if}
       </div>
     {/if}
 
     {#if played.length > 0}
       <div class="section-label played-label">Previously Played</div>
-      <div class="track-list played-list">
-        {#each played as track, i (track.id)}
+      <div class="track-list played-list" bind:this={playedListEl}>
+        {#if playedSlice.start > 0}
+          <div style="height: {playedSlice.start * ROW_HEIGHT}px" aria-hidden="true"></div>
+        {/if}
+        {#each played.slice(playedSlice.start, playedSlice.end) as track, i (track.id)}
+          {@const ri = playedSlice.start + i}
           <div
             class="track-row played-row"
-            data-idx={i}
-            in:fly={{ x: -24, duration: 200 }}
-            out:slide={{ duration: 180 }}
+            data-idx={ri}
           >
-            <span class="track-num">{i + 1}</span>
+            <span class="track-num">{ri + 1}</span>
             <button
               class="track-play"
-              onclick={() => handlePlay(i)}
+              onclick={() => handlePlay(ri)}
               oncontextmenu={(e) => handleContext(e, track)}
             >
               <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
@@ -204,13 +271,16 @@
               </div>
               <span class="track-duration">{formatDuration(track.duration_secs)}</span>
             </button>
-            <button class="remove-btn" onclick={() => handleRemove(i)} aria-label="Remove from queue">
+            <button class="remove-btn" onclick={() => handleRemove(ri)} aria-label="Remove from queue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
         {/each}
+        {#if playedSlice.end < played.length}
+          <div style="height: {(played.length - playedSlice.end) * ROW_HEIGHT}px" aria-hidden="true"></div>
+        {/if}
       </div>
     {/if}
   {/if}

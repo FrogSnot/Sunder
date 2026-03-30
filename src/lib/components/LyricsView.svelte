@@ -16,11 +16,16 @@
     }
   });
 
+  // Compute active lyric line index once (not per-line in template)
+  let activeLineIdx = $derived.by(() => {
+    if (!lyricsState.synced || !lyricsState.visible) return -1;
+    return lyricsState.syncedLines.findLastIndex((l) => l.time <= player.currentTime);
+  });
+
   // Auto-scroll to current synced line
   $effect(() => {
     if (!lyricsState.synced || !lyricsState.visible) return;
-    const positionSecs = player.currentTime;
-    const idx = lyricsState.syncedLines.findLastIndex((l) => l.time <= positionSecs);
+    const idx = activeLineIdx;
     if (idx >= 0 && lyricsContainer) {
       const el = lyricsContainer.children[idx] as HTMLElement | undefined;
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -49,9 +54,7 @@
         <p class="lyrics-status">{lyricsState.error}</p>
       {:else if lyricsState.synced}
         {#each lyricsState.syncedLines as line, i}
-          {@const positionSecs = player.currentTime}
-          {@const isActive = i === lyricsState.syncedLines.findLastIndex((l) => l.time <= positionSecs)}
-          <p class="lyric-line" class:active={isActive}>{line.text || "\u00A0"}</p>
+          <p class="lyric-line" class:active={i === activeLineIdx}>{line.text || "\u00A0"}</p>
         {/each}
       {:else if lyricsState.content}
         <pre class="plain-lyrics">{lyricsState.content}</pre>
@@ -145,8 +148,9 @@
     padding: 4px 0;
     font-size: 0.9rem;
     color: var(--text-muted);
-    transition: color 200ms ease, font-size 200ms ease;
+    transition: color 300ms ease, font-size 300ms ease;
     line-height: 1.6;
+    will-change: color;
   }
 
   .lyric-line.active {

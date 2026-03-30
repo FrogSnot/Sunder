@@ -14,6 +14,8 @@
     display: inline-block;
     animation: worm 3s ease-in-out infinite;
     animation-delay: calc(var(--i) * 60ms);
+    will-change: transform;
+    contain: layout style;
   }
 
   @keyframes worm {

@@ -37,6 +37,12 @@
     if (nav.activeTab === "playlists") refreshPlaylists();
   });
 
+  $effect(() => {
+    if (viewing && nav.activePlaylistId !== null) {
+      getPlaylistTracks(nav.activePlaylistId).then(t => { detailTracks = t; }).catch(e => console.error("get tracks:", e));
+    }
+  });
+
   async function refreshPlaylists() {
     try {
       playlists = await listPlaylists();
