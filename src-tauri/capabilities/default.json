@@ -5,6 +5,7 @@
   "permissions": [
     "core:default",
     "notification:default",
-    "dialog:default"
+    "dialog:default",
+    "window-state:default"
   ]
 }
