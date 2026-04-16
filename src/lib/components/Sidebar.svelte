@@ -84,7 +84,7 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    padding: 16px 0;
+    padding: 16px 0 80px;
     overflow-y: auto;
   }
 
