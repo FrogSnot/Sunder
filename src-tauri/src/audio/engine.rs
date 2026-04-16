@@ -612,7 +612,7 @@ fn cleanup_cache(cache_dir: &std::path::Path, keep: usize) {
         return;
     }
 
-    entries.sort_by(|a, b| b.1.cmp(&a.1)); // newest first
+    entries.sort_by_key(|e| std::cmp::Reverse(e.1)); // newest first
     for (path, _) in entries.iter().skip(keep) {
         let _ = std::fs::remove_file(path);
     }
