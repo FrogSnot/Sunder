@@ -4,15 +4,42 @@
   import WormText from "./WormText.svelte";
 
   let track = $derived(player.currentTrack);
+  let blurredBg = $state("");
 
   $effect(() => {
     if (nav.focusMode && !track) nav.focusMode = false;
+  });
+
+  // Pre-blur thumbnail via canvas to eliminate costly CSS blur() filter.
+  // Draws at 32x32 then scales up, achieving a natural blur effect with ~0% CPU.
+  $effect(() => {
+    const thumb = track?.thumbnail;
+    if (!thumb) { blurredBg = ""; return; }
+
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = 32;
+      c.height = 32;
+      const ctx = c.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, 32, 32);
+        blurredBg = c.toDataURL("image/jpeg", 0.7);
+      }
+    };
+    img.onerror = () => { blurredBg = ""; };
+    img.src = thumb;
   });
 </script>
 
 {#if nav.focusMode && track}
   <div class="focus-overlay">
-    <div class="focus-bg" style="background-image: url({track.thumbnail || ''})"></div>
+    <div
+      class="focus-bg"
+      class:fallback={!blurredBg}
+      style="background-image: url({blurredBg || track.thumbnail || ''})"
+    ></div>
     <div class="focus-content">
       <img class="focus-art" src={track.thumbnail || ""} alt="" />
       <div class="focus-info">
@@ -40,8 +67,14 @@
     inset: -40px;
     background-size: cover;
     background-position: center;
-    filter: blur(40px) brightness(0.3) saturate(1.4);
+    filter: brightness(0.3) saturate(1.4);
     transform: scale(1.2);
+    will-change: transform;
+  }
+
+  /* CSS blur fallback when canvas pre-blur fails (CORS) */
+  .focus-bg.fallback {
+    filter: blur(40px) brightness(0.3) saturate(1.4);
     will-change: filter, transform;
     image-rendering: auto;
   }

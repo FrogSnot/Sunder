@@ -1,6 +1,7 @@
 mod audio;
 pub mod config;
 mod db;
+pub mod discord;
 mod error;
 mod extraction;
 mod ipc;
@@ -27,7 +28,12 @@ pub fn run() {
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
             app.manage(AudioHandle::new(app.handle().clone()));
             app.manage(Extractor::new());
-            app.manage(ConfigManager::new(&data_dir));
+
+            let config_mgr = ConfigManager::new(&data_dir);
+            let drpc = discord::DiscordPresence::new();
+            drpc.set_enabled(config_mgr.get().discord_rpc_enabled);
+            app.manage(config_mgr);
+            app.manage(drpc);
 
             // System Tray Setup
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -133,6 +139,10 @@ pub fn run() {
             ipc::commands::set_speed,
             ipc::commands::export_playlist_json,
             ipc::commands::import_playlist_json,
+            ipc::commands::set_discord_rpc,
+            ipc::commands::get_tracks_by_ids,
+            ipc::commands::check_for_updates,
+            ipc::commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

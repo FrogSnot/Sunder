@@ -7,6 +7,9 @@ export interface AppConfig {
   eq_enabled: boolean;
   eq_gains: number[];
   notifications_enabled: boolean;
+  discord_rpc_enabled: boolean;
+  saved_queue: string[];
+  saved_queue_index: number;
 }
 
 const defaults: AppConfig = {
@@ -14,6 +17,9 @@ const defaults: AppConfig = {
   eq_enabled: false,
   eq_gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   notifications_enabled: true,
+  discord_rpc_enabled: false,
+  saved_queue: [],
+  saved_queue_index: -1,
 };
 
 class ConfigState {
@@ -69,10 +75,12 @@ $effect.root(() => {
     const volume = player.volume;
     const eq_enabled = player.eqEnabled;
     const eq_gains = $state.snapshot(player.eqGains);
+    const saved_queue = player.queue.map(t => t.id);
+    const saved_queue_index = player.queueIndex;
 
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      config.update({ volume, eq_enabled, eq_gains });
+      config.update({ volume, eq_enabled, eq_gains, saved_queue, saved_queue_index });
     }, 300);
   });
 });

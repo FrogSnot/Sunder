@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, playPrev, search, setSpeed } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playPrev, search, setSpeed, setDiscordRpc } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -15,6 +15,8 @@
   async function togglePlay() {
     if (player.isPlaying) {
       await pause();
+    } else if (player.currentTrack && player.playbackState === "idle") {
+      await playTrack(player.currentTrack);
     } else {
       await resume();
     }
@@ -81,6 +83,13 @@
     player.failedTrack = null;
     player.downloadStage = "";
     player.lastError = "";
+  }
+
+  async function toggleDiscord() {
+    const newState = !config.current.discord_rpc_enabled;
+    config.current.discord_rpc_enabled = newState;
+    await setDiscordRpc(newState, player.currentTrack && player.isPlaying ? player.currentTrack : undefined);
+    config.save();
   }
 
   let hasTrack = $derived(player.currentTrack !== null);
@@ -281,6 +290,22 @@
                 </svg>
                 <span>Notifications</span>
                 <span class="more-badge">{config.current.notifications_enabled ? "ON" : "OFF"}</span>
+              </button>
+              <button
+                class="more-menu-item"
+                class:active={config.current.discord_rpc_enabled}
+                onclick={toggleDiscord}
+                role="menuitem"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5.6 18.4a9 9 0 0 1 0-12.8" />
+                  <path d="M8.5 15.5a5 5 0 0 1 0-7" />
+                  <circle cx="12" cy="12" r="1" fill="currentColor" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  <path d="M18.4 5.6a9 9 0 0 1 0 12.8" />
+                </svg>
+                <span>Discord Presence</span>
+                <span class="more-badge">{config.current.discord_rpc_enabled ? "ON" : "OFF"}</span>
               </button>
               <div class="more-menu-divider"></div>
               <div class="speed-control">

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { nav, type Tab } from "../state/nav.svelte";
+  import { checkForUpdates, openUrl } from "../ipc/bridge";
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "search", label: "Search", icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" },
@@ -7,6 +9,18 @@
     { id: "queue", label: "Queue", icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" },
     { id: "playlists", label: "Playlists", icon: "M9 18V5l12-2v13M6 18a3 3 0 100-6 3 3 0 000 6zM18 16a3 3 0 100-6 3 3 0 000 6z" },
   ];
+
+  let update = $state<{ version: string; url: string } | null>(null);
+
+  onMount(() => {
+    const timer = setTimeout(async () => {
+      const info = await checkForUpdates();
+      if (info.available && info.version && info.url) {
+        update = { version: info.version, url: info.url };
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  });
 
   function setTab(tab: Tab) {
     nav.activeTab = tab;
@@ -46,6 +60,17 @@
       </button>
     {/each}
   </div>
+
+  {#if update}
+    <button class="update-hint" onclick={() => update && openUrl(update.url)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      <span>{update.version} available</span>
+    </button>
+  {/if}
 </nav>
 
 <style>
@@ -135,6 +160,36 @@
   .nav-btn svg {
     width: 18px;
     height: 18px;
+    flex-shrink: 0;
+  }
+
+  .update-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: auto 12px 12px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--bg-elevated);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 200ms ease, color 200ms ease;
+  }
+
+  .update-hint:hover {
+    background: var(--accent);
+    color: #121212;
+  }
+
+  .update-hint:active {
+    opacity: 0.8;
+  }
+
+  .update-hint svg {
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
   }
 

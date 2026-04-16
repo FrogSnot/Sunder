@@ -9,6 +9,9 @@ pub struct AppConfig {
     pub eq_enabled: bool,
     pub eq_gains: Vec<f64>,
     pub notifications_enabled: bool,
+    pub discord_rpc_enabled: bool,
+    pub saved_queue: Vec<String>,
+    pub saved_queue_index: i64,
 }
 
 impl Default for AppConfig {
@@ -18,6 +21,9 @@ impl Default for AppConfig {
             eq_enabled: false,
             eq_gains: vec![0.0; 10],
             notifications_enabled: true,
+            discord_rpc_enabled: false,
+            saved_queue: Vec::new(),
+            saved_queue_index: -1,
         }
     }
 }

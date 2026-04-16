@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use crate::config::{AppConfig, ConfigManager};
+use crate::discord::{DiscordPresence, PresenceCommand};
 
 #[tauri::command]
 pub fn get_config(config: State<'_, ConfigManager>) -> AppConfig {
@@ -84,6 +85,7 @@ pub async fn play_track(
     audio: State<'_, AudioHandle>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
+    discord: State<'_, DiscordPresence>,
 ) -> Result<(), String> {
     // Look up duration from DB by primary key (instant).
     // Only fall back to yt-dlp metadata if the track was never seen before.
@@ -102,30 +104,38 @@ pub async fn play_track(
 
     audio.send(AudioCommand::Play { video_id: track_id.clone(), duration_ms });
     audio.send(AudioCommand::UpdateMetadata { 
-        title, 
-        artist, 
-        thumbnail,
+        title: title.clone(), 
+        artist: artist.clone(), 
+        thumbnail: thumbnail.clone(),
         track_id: track_id.clone(),
+    });
+    discord.send(PresenceCommand::SetActivity {
+        title,
+        artist,
+        thumbnail,
     });
     let _ = db.record_listen(&track_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pause(audio: State<'_, AudioHandle>) -> Result<(), String> {
+pub async fn pause(audio: State<'_, AudioHandle>, discord: State<'_, DiscordPresence>) -> Result<(), String> {
     audio.send(AudioCommand::Pause);
+    discord.send(PresenceCommand::Pause);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn resume(audio: State<'_, AudioHandle>) -> Result<(), String> {
+pub async fn resume(audio: State<'_, AudioHandle>, discord: State<'_, DiscordPresence>) -> Result<(), String> {
     audio.send(AudioCommand::Resume);
+    discord.send(PresenceCommand::Resume);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn stop(audio: State<'_, AudioHandle>) -> Result<(), String> {
+pub async fn stop(audio: State<'_, AudioHandle>, discord: State<'_, DiscordPresence>) -> Result<(), String> {
     audio.send(AudioCommand::Stop);
+    discord.send(PresenceCommand::Clear);
     Ok(())
 }
 
@@ -528,4 +538,98 @@ pub async fn import_playlist_json(
         thumbnail: String::new(),
         track_count: imported.tracks.len() as i64,
     })
+}
+
+#[tauri::command]
+pub async fn set_discord_rpc(
+    enabled: bool,
+    title: Option<String>,
+    artist: Option<String>,
+    thumbnail: Option<String>,
+    discord: State<'_, DiscordPresence>,
+    config_mgr: State<'_, ConfigManager>,
+) -> Result<(), String> {
+    discord.set_enabled(enabled);
+    let mut cfg = config_mgr.get();
+    cfg.discord_rpc_enabled = enabled;
+    config_mgr.update(cfg);
+    if enabled {
+        if let (Some(t), Some(a)) = (title, artist) {
+            discord.send(PresenceCommand::SetActivity {
+                title: t,
+                artist: a,
+                thumbnail: thumbnail.unwrap_or_default(),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_tracks_by_ids(
+    track_ids: Vec<String>,
+    db: State<'_, SearchCache>,
+) -> Result<Vec<Track>, String> {
+    db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn check_for_updates() -> Result<serde_json::Value, String> {
+    let output = tokio::process::Command::new("curl")
+        .args(["-sL", "--max-time", "5", "https://api.github.com/repos/FrogSnot/Sunder/releases/latest"])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Ok(serde_json::json!({ "available": false }));
+    }
+
+    let body = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+
+    let latest = json["tag_name"].as_str().unwrap_or("").trim_start_matches('v');
+    let current = env!("CARGO_PKG_VERSION");
+
+    if latest.is_empty() || latest == current {
+        return Ok(serde_json::json!({ "available": false }));
+    }
+
+    let latest_v: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
+    let current_v: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
+    let newer = latest_v.iter().zip(current_v.iter())
+        .find(|(a, b)| a != b)
+        .map(|(a, b)| a > b)
+        .unwrap_or(latest_v.len() > current_v.len());
+
+    if newer {
+        Ok(serde_json::json!({
+            "available": true,
+            "version": format!("v{latest}"),
+            "url": json["html_url"].as_str().unwrap_or("https://github.com/FrogSnot/Sunder/releases/latest"),
+        }))
+    } else {
+        Ok(serde_json::json!({ "available": false }))
+    }
+}
+
+#[tauri::command]
+pub async fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("Only HTTPS URLs are allowed".into());
+    }
+    let (cmd, args): (&str, Vec<&str>) = if cfg!(target_os = "linux") {
+        ("xdg-open", vec![&url])
+    } else if cfg!(target_os = "macos") {
+        ("open", vec![&url])
+    } else if cfg!(target_os = "windows") {
+        ("explorer", vec![&url])
+    } else {
+        return Err("Unsupported platform".into());
+    };
+    tokio::process::Command::new(cmd)
+        .args(args)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

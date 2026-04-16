@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte";
+import { config } from "../state/config.svelte";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
 
 export async function search(query: string): Promise<SearchResult> {
@@ -176,6 +177,49 @@ export async function importPlaylistJson(): Promise<Playlist | null> {
   });
   if (!path) return null;
   return invoke<Playlist>("import_playlist_json", { path });
+}
+
+export async function setDiscordRpc(enabled: boolean, track?: Track): Promise<void> {
+  await invoke("set_discord_rpc", {
+    enabled,
+    title: track?.title ?? null,
+    artist: track?.artist ?? null,
+    thumbnail: track?.thumbnail ?? null,
+  });
+}
+
+export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
+  return invoke<Track[]>("get_tracks_by_ids", { trackIds });
+}
+
+export async function restoreQueue(): Promise<void> {
+  const { saved_queue, saved_queue_index } = config.current;
+  if (!saved_queue?.length) return;
+  const tracks = await getTracksByIds(saved_queue);
+  if (tracks.length === 0) return;
+  player.queue = tracks;
+  player.queueIndex = Math.min(Math.max(saved_queue_index ?? -1, -1), tracks.length - 1);
+  if (player.queueIndex >= 0) {
+    player.currentTrack = tracks[player.queueIndex];
+  }
+}
+
+export interface UpdateInfo {
+  available: boolean;
+  version?: string;
+  url?: string;
+}
+
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  try {
+    return await invoke<UpdateInfo>("check_for_updates");
+  } catch {
+    return { available: false };
+  }
+}
+
+export async function openUrl(url: string): Promise<void> {
+  await invoke("open_url", { url });
 }
 
 export function initProgressListener(): () => void {

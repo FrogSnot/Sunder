@@ -17,7 +17,9 @@
     seek,
     setVolume,
     playNext,
-    playPrev
+    playPrev,
+    playTrack,
+    restoreQueue
   } from "./lib/ipc/bridge";
   import { player } from "./lib/state/player.svelte";
   import { nav } from "./lib/state/nav.svelte";
@@ -31,7 +33,7 @@
 
   onMount(() => {
     cleanup = initProgressListener();
-    config.load();
+    config.load().then(() => restoreQueue());
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       cleanup?.();
@@ -52,6 +54,8 @@
         e.preventDefault();
         if (player.isPlaying) {
           await pause();
+        } else if (player.currentTrack && player.playbackState === "idle") {
+          await playTrack(player.currentTrack);
         } else {
           await resume();
         }

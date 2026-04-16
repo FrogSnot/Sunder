@@ -122,6 +122,36 @@ impl SearchCache {
         Ok(track)
     }
 
+    pub fn get_tracks_by_ids(&self, ids: &[String]) -> Result<Vec<Track>, AppError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders: String = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT id, title, artist, thumbnail, duration FROM tracks WHERE id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows: Vec<Track> = stmt
+            .query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    stream_url: None,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Preserve input ordering
+        let map: std::collections::HashMap<String, Track> =
+            rows.into_iter().map(|t| (t.id.clone(), t)).collect();
+        Ok(ids.iter().filter_map(|id| map.get(id).cloned()).collect())
+    }
+
     pub fn search_local(&self, query: &str) -> Result<Vec<Track>, AppError> {
         if query.trim().is_empty() {
             return Ok(vec![]);
