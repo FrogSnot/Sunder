@@ -127,7 +127,7 @@ impl SearchCache {
             return Ok(vec![]);
         }
         let conn = self.conn.lock().unwrap();
-        let placeholders: String = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+        let placeholders: String = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(",");
         let sql = format!(
             "SELECT id, title, artist, thumbnail, duration FROM tracks WHERE id IN ({placeholders})"
         );

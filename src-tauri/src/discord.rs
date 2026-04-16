@@ -14,6 +14,12 @@ pub struct DiscordPresence {
     pub enabled: Arc<RwLock<bool>>,
 }
 
+impl Default for DiscordPresence {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiscordPresence {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
