@@ -257,8 +257,19 @@
           {@const ri = playedSlice.start + i}
           <div
             class="track-row played-row"
+            class:drag-over={dragging && dragOver === ri && dragFrom !== ri}
+            class:dragging={dragging && dragFrom === ri}
             data-idx={ri}
           >
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span
+              class="drag-handle"
+              onpointerdown={(e) => onPointerDown(e, ri)}
+              onpointermove={onPointerMove}
+              onpointerup={onPointerUp}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+            </span>
             <span class="track-num">{ri + 1}</span>
             <button
               class="track-play"

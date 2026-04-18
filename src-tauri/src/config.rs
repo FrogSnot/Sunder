@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub discord_rpc_enabled: bool,
     pub saved_queue: Vec<String>,
     pub saved_queue_index: i64,
+    pub repeat_mode: String,
+    pub playback_speed: f64,
 }
 
 impl Default for AppConfig {
@@ -24,6 +26,8 @@ impl Default for AppConfig {
             discord_rpc_enabled: false,
             saved_queue: Vec::new(),
             saved_queue_index: -1,
+            repeat_mode: "off".into(),
+            playback_speed: 1.0,
         }
     }
 }

@@ -191,14 +191,22 @@ fn send_activity(
     s: &mut IpcStream,
     title: &str,
     artist: &str,
-    thumb: &str,
+    _thumb: &str,
     paused: bool,
     nonce: u64,
 ) -> std::io::Result<()> {
     let pid = std::process::id();
-    let t = esc(title);
+    // Discord requires details to be at least 2 chars; fall back if empty.
+    let raw_title = if title.is_empty() { "Unknown" } else { title };
+    let t = esc(raw_title);
     let a = esc(artist);
-    let state = if paused { "Paused".into() } else { format!("by {a}") };
+    let state = if paused {
+        "Paused".into()
+    } else if artist.is_empty() {
+        "Playing".into()
+    } else {
+        format!("by {a}")
+    };
     let ts = if paused {
         String::new()
     } else {
@@ -208,13 +216,12 @@ fn send_activity(
             .as_secs();
         format!(r#","timestamps":{{"start":{now}}}"#)
     };
-    let img = if thumb.is_empty() {
-        String::new()
-    } else {
-        format!(r#","assets":{{"large_image":"{}","large_text":"Sunder"}}"#, esc(thumb))
-    };
+    // type:2 = Listening. Discord renders this as "Listening to Sunder" with the
+    // app's uploaded icon. We intentionally omit `assets.large_image` because
+    // Discord rejects activities with arbitrary external image URLs unless they
+    // are pre-registered via the External Assets API.
     write_frame(s, 1, &format!(
-        r#"{{"cmd":"SET_ACTIVITY","args":{{"pid":{pid},"activity":{{"details":"{t}","state":"{state}"{img}{ts}}}}},"nonce":"{nonce}"}}"#
+        r#"{{"cmd":"SET_ACTIVITY","args":{{"pid":{pid},"activity":{{"type":2,"details":"{t}","state":"{state}"{ts}}}}},"nonce":"{nonce}"}}"#
     ))
 }
 

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { player } from "./player.svelte";
-import { setVolume, setEqEnabled, setEqGains } from "../ipc/bridge";
+import { setVolume, setEqEnabled, setEqGains, setSpeed, setRepeatMode } from "../ipc/bridge";
 
 export interface AppConfig {
   volume: number;
@@ -10,6 +10,8 @@ export interface AppConfig {
   discord_rpc_enabled: boolean;
   saved_queue: string[];
   saved_queue_index: number;
+  repeat_mode: "off" | "queue" | "track";
+  playback_speed: number;
 }
 
 const defaults: AppConfig = {
@@ -20,6 +22,8 @@ const defaults: AppConfig = {
   discord_rpc_enabled: false,
   saved_queue: [],
   saved_queue_index: -1,
+  repeat_mode: "off",
+  playback_speed: 1.0,
 };
 
 class ConfigState {
@@ -37,12 +41,16 @@ class ConfigState {
     player.volume = this.current.volume;
     player.eqEnabled = this.current.eq_enabled;
     player.eqGains = [...this.current.eq_gains];
+    player.repeatMode = this.current.repeat_mode;
+    player.speed = this.current.playback_speed;
 
     // Best-effort backend sync (engine may have started with defaults)
     try {
       await setVolume(player.volume);
       await setEqEnabled(player.eqEnabled);
       await setEqGains(player.eqGains);
+      await setSpeed(player.speed);
+      await setRepeatMode(player.repeatMode);
     } catch (e) {
       console.error("Failed to sync config to backend:", e);
     }
@@ -77,10 +85,12 @@ $effect.root(() => {
     const eq_gains = $state.snapshot(player.eqGains);
     const saved_queue = player.queue.map(t => t.id);
     const saved_queue_index = player.queueIndex;
+    const repeat_mode = player.repeatMode;
+    const playback_speed = player.speed;
 
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      config.update({ volume, eq_enabled, eq_gains, saved_queue, saved_queue_index });
+      config.update({ volume, eq_enabled, eq_gains, saved_queue, saved_queue_index, repeat_mode, playback_speed });
     }, 300);
   });
 });
