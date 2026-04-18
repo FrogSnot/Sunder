@@ -13,6 +13,7 @@
     importYtPlaylist,
     exportPlaylist,
     importPlaylistJson,
+    refreshYtPlaylist,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
@@ -112,6 +113,22 @@
       toastState.add(`Imported "${p.name}" (${p.track_count} tracks)`, "info");
     } catch (e) {
       toastState.add(`Import failed: ${e}`, "error");
+    }
+  }
+
+  let refreshing = $state(false);
+  async function handleRefresh() {
+    if (nav.activePlaylistId === null || refreshing) return;
+    refreshing = true;
+    try {
+      const count = await refreshYtPlaylist(nav.activePlaylistId);
+      detailTracks = await getPlaylistTracks(nav.activePlaylistId);
+      await refreshPlaylists();
+      toastState.add(`Refreshed (${count} tracks)`, "info", 2000);
+    } catch (e) {
+      toastState.add(`Refresh failed: ${e}`, "error");
+    } finally {
+      refreshing = false;
     }
   }
 
@@ -300,6 +317,14 @@
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           Export
+        </button>
+        <button class="export-btn" onclick={handleRefresh} disabled={refreshing} aria-label="Refresh playlist from source">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       {/if}
     </div>

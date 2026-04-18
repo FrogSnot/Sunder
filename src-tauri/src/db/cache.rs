@@ -82,6 +82,14 @@ impl SearchCache {
             }
         }
 
+        // Migration: add source_url to playlists if missing
+        if let Err(e) = conn.execute("ALTER TABLE playlists ADD COLUMN source_url TEXT NOT NULL DEFAULT ''", []) {
+            let msg = e.to_string();
+            if !msg.contains("duplicate column name") {
+                eprintln!("[sunder] playlists source_url migration failed: {e}");
+            }
+        }
+
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -262,6 +270,44 @@ impl SearchCache {
             "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
             params![playlist_id, track_id],
         )?;
+        Ok(())
+    }
+
+    pub fn set_playlist_source(&self, id: i64, url: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET source_url = ?1 WHERE id = ?2",
+            params![url, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_playlist_source(&self, id: i64) -> Result<Option<String>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let url: Option<String> = conn
+            .query_row(
+                "SELECT source_url FROM playlists WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .ok();
+        Ok(url.filter(|s: &String| !s.is_empty()))
+    }
+
+    pub fn replace_playlist_tracks(&self, playlist_id: i64, track_ids: &[String]) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+        )?;
+        for (i, tid) in track_ids.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, ?2, ?3)",
+                params![playlist_id, tid, i as i64],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

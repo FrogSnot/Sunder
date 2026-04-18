@@ -141,8 +141,8 @@ pub fn run() {
             ipc::commands::import_playlist_json,
             ipc::commands::set_discord_rpc,
             ipc::commands::get_tracks_by_ids,
-            ipc::commands::check_for_updates,
             ipc::commands::open_url,
+            ipc::commands::refresh_yt_playlist,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

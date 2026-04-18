@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src * data:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://lrclib.net https://api.lyrics.ovh"
+      "csp": "default-src 'self'; img-src * data:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://lrclib.net https://api.lyrics.ovh https://api.github.com"
     }
   },
   "bundle": {

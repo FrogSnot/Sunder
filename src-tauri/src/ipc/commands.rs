@@ -328,12 +328,40 @@ pub async fn import_yt_playlist(
 
     let thumbnail = playlist_thumbnail.unwrap_or_default();
     let playlist = db.create_playlist(&name, &thumbnail).map_err(|e| e.to_string())?;
+    let _ = db.set_playlist_source(playlist.id, &url);
     let _ = db.upsert_tracks(&tracks);
     for track in tracks {
         let _ = db.add_to_playlist(playlist.id, &track.id);
     }
 
     Ok(playlist)
+}
+
+#[tauri::command]
+pub async fn refresh_yt_playlist(
+    playlist_id: i64,
+    db: State<'_, SearchCache>,
+    extractor: State<'_, Extractor>,
+) -> Result<i64, String> {
+    let url = db
+        .get_playlist_source(playlist_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("This playlist was not imported from YouTube/YTM")?;
+
+    let (_, _, tracks) = extractor
+        .extract_playlist(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+    if tracks.is_empty() {
+        return Err("No tracks found at source URL".into());
+    }
+
+    db.upsert_tracks(&tracks).map_err(|e| e.to_string())?;
+    let ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
+    db.replace_playlist_tracks(playlist_id, &ids)
+        .map_err(|e| e.to_string())?;
+
+    Ok(tracks.len() as i64)
 }
 
 #[tauri::command]
@@ -571,46 +599,6 @@ pub async fn get_tracks_by_ids(
     db: State<'_, SearchCache>,
 ) -> Result<Vec<Track>, String> {
     db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn check_for_updates() -> Result<serde_json::Value, String> {
-    let output = tokio::process::Command::new("curl")
-        .args(["-sL", "--max-time", "5", "https://api.github.com/repos/FrogSnot/Sunder/releases/latest"])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Ok(serde_json::json!({ "available": false }));
-    }
-
-    let body = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-
-    let latest = json["tag_name"].as_str().unwrap_or("").trim_start_matches('v');
-    let current = env!("CARGO_PKG_VERSION");
-
-    if latest.is_empty() || latest == current {
-        return Ok(serde_json::json!({ "available": false }));
-    }
-
-    let latest_v: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
-    let current_v: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
-    let newer = latest_v.iter().zip(current_v.iter())
-        .find(|(a, b)| a != b)
-        .map(|(a, b)| a > b)
-        .unwrap_or(latest_v.len() > current_v.len());
-
-    if newer {
-        Ok(serde_json::json!({
-            "available": true,
-            "version": format!("v{latest}"),
-            "url": json["html_url"].as_str().unwrap_or("https://github.com/FrogSnot/Sunder/releases/latest"),
-        }))
-    } else {
-        Ok(serde_json::json!({ "available": false }))
-    }
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
 import { player } from "../state/player.svelte";
@@ -16,6 +17,10 @@ export async function searchLocal(query: string): Promise<Track[]> {
 
 export async function importYtPlaylist(url: string, playlistName: string): Promise<Playlist> {
   return invoke<Playlist>("import_yt_playlist", { url, playlistName });
+}
+
+export async function refreshYtPlaylist(playlistId: number): Promise<number> {
+  return invoke<number>("refresh_yt_playlist", { playlistId });
 }
 
 export async function playTrack(track: Track): Promise<void> {
@@ -210,10 +215,43 @@ export interface UpdateInfo {
   url?: string;
 }
 
+function isNewer(latest: string, current: string): boolean {
+  const lp = latest.split(".").map((n) => parseInt(n, 10) || 0);
+  const cp = current.split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(lp.length, cp.length);
+  for (let i = 0; i < len; i++) {
+    const a = lp[i] ?? 0;
+    const b = cp[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return false;
+}
+
 export async function checkForUpdates(): Promise<UpdateInfo> {
   try {
-    return await invoke<UpdateInfo>("check_for_updates");
-  } catch {
+    const current = await getVersion();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(
+      "https://api.github.com/repos/FrogSnot/Sunder/releases/latest",
+      { headers: { Accept: "application/vnd.github+json" }, signal: ctrl.signal },
+    );
+    clearTimeout(timer);
+    if (!res.ok) {
+      console.warn("[updater] GitHub API", res.status);
+      return { available: false };
+    }
+    const data = await res.json();
+    const latest = String(data.tag_name ?? "").replace(/^v/, "");
+    if (!latest) return { available: false };
+    if (!isNewer(latest, current)) return { available: false };
+    return {
+      available: true,
+      version: `v${latest}`,
+      url: data.html_url ?? "https://github.com/FrogSnot/Sunder/releases/latest",
+    };
+  } catch (e) {
+    console.warn("[updater] check failed", e);
     return { available: false };
   }
 }
