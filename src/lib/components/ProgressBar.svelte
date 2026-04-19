@@ -34,7 +34,7 @@
   function updatePosition(e: PointerEvent) {
     const rect = barEl.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    player.currentTime = pct * player.duration;
+    player.currentTime = Math.min(pct * player.duration, player.duration);
   }
 
   let progressPct = $derived(player.progress * 100);

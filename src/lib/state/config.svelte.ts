@@ -37,20 +37,30 @@ class ConfigState {
       this.current = { ...defaults };
     }
 
-    // Sync into player state
-    player.volume = this.current.volume;
-    player.eqEnabled = this.current.eq_enabled;
-    player.eqGains = [...this.current.eq_gains];
-    player.repeatMode = this.current.repeat_mode;
-    player.speed = this.current.playback_speed;
+    // Capture saved values before any async work so progress events
+    // can't overwrite them via updateFromProgress().
+    const savedVolume = this.current.volume;
+    const savedEqEnabled = this.current.eq_enabled;
+    const savedEqGains = [...this.current.eq_gains];
+    const savedRepeatMode = this.current.repeat_mode;
+    const savedSpeed = this.current.playback_speed;
 
-    // Best-effort backend sync (engine may have started with defaults)
+    // Sync into player state
+    player.volume = savedVolume;
+    player.eqEnabled = savedEqEnabled;
+    player.eqGains = savedEqGains;
+    player.repeatMode = savedRepeatMode;
+    player.speed = savedSpeed;
+
+    // Best-effort backend sync (engine may have started with defaults).
+    // Set speed and repeat first so subsequent state emissions from
+    // setVolume/setEq carry the correct speed value.
     try {
-      await setVolume(player.volume);
-      await setEqEnabled(player.eqEnabled);
-      await setEqGains(player.eqGains);
-      await setSpeed(player.speed);
-      await setRepeatMode(player.repeatMode);
+      await setSpeed(savedSpeed);
+      await setRepeatMode(savedRepeatMode);
+      await setVolume(savedVolume);
+      await setEqEnabled(savedEqEnabled);
+      await setEqGains(savedEqGains);
     } catch (e) {
       console.error("Failed to sync config to backend:", e);
     }

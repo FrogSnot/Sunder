@@ -45,7 +45,7 @@
     const target = e.target as HTMLElement;
     if (target.tagName.toLowerCase() === "input") {
       const type = (target as HTMLInputElement).type;
-      if (type === "text" || type === "search" || type === "password") return;
+      if (type === "text" || type === "search" || type === "password" || type === "range") return;
     }
     if (target.tagName.toLowerCase() === "textarea") return;
 
@@ -62,11 +62,19 @@
         break;
       case "arrowleft":
         e.preventDefault();
-        await seek(Math.max(0, player.currentTime - seekStep));
+        if (player.currentTrack && player.duration > 0) {
+          const newTime = Math.max(0, player.currentTime - seekStep);
+          player.currentTime = newTime;
+          await seek(newTime);
+        }
         break;
       case "arrowright":
         e.preventDefault();
-        await seek(player.currentTime + seekStep);
+        if (player.currentTrack && player.duration > 0) {
+          const newTime = Math.min(player.currentTime + seekStep, player.duration);
+          player.currentTime = newTime;
+          await seek(newTime);
+        }
         break;
       case "arrowup":
         e.preventDefault();

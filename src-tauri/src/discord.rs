@@ -78,12 +78,29 @@ fn run_loop(rx: mpsc::Receiver<PresenceCommand>, enabled: Arc<RwLock<bool>>) {
         if stream.is_none() {
             stream = connect();
             if let Some(ref mut s) = stream {
+                eprintln!("[sunder] discord: connected to IPC socket");
                 let handshake = format!(r#"{{"v":1,"client_id":"{APPLICATION_ID}"}}"#);
-                if write_frame(s, 0, &handshake).is_err() || read_frame(s).is_err() {
+                if let Err(e) = write_frame(s, 0, &handshake) {
+                    eprintln!("[sunder] discord: handshake write failed: {e}");
                     stream = None;
                     continue;
                 }
+                match read_frame_body(s) {
+                    Ok(body) => {
+                        if body.contains("\"ERROR\"") {
+                            eprintln!("[sunder] discord: handshake rejected: {body}");
+                            stream = None;
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[sunder] discord: handshake read failed: {e}");
+                        stream = None;
+                        continue;
+                    }
+                }
             } else {
+                eprintln!("[sunder] discord: could not find IPC socket");
                 continue;
             }
         }
@@ -118,8 +135,22 @@ fn run_loop(rx: mpsc::Receiver<PresenceCommand>, enabled: Arc<RwLock<bool>>) {
         };
 
         match ok {
-            Ok(()) => { let _ = read_frame(s); }
-            Err(_) => { stream = None; }
+            Ok(()) => {
+                match read_frame_body(s) {
+                    Ok(body) if body.contains("\"ERROR\"") => {
+                        eprintln!("[sunder] discord: activity rejected: {body}");
+                    }
+                    Err(e) => {
+                        eprintln!("[sunder] discord: response read failed: {e}");
+                        stream = None;
+                    }
+                    _ => {}
+                }
+            }
+            Err(e) => {
+                eprintln!("[sunder] discord: write failed: {e}");
+                stream = None;
+            }
         }
     }
 }
@@ -130,7 +161,7 @@ fn run_loop(rx: mpsc::Receiver<PresenceCommand>, enabled: Arc<RwLock<bool>>) {
 fn connect() -> Option<IpcStream> {
     use std::time::Duration;
 
-    let dirs: Vec<String> = [
+    let base_dirs: Vec<String> = [
         std::env::var("XDG_RUNTIME_DIR").ok(),
         std::env::var("TMPDIR").ok(),
         Some("/tmp".into()),
@@ -139,9 +170,17 @@ fn connect() -> Option<IpcStream> {
     .flatten()
     .collect();
 
+    // Also check Flatpak and Snap subdirectories
+    let mut dirs = base_dirs.clone();
+    if let Some(xdg) = base_dirs.first() {
+        dirs.push(format!("{xdg}/app/com.discordapp.Discord"));
+        dirs.push(format!("{xdg}/snap.discord"));
+    }
+
     for dir in &dirs {
         for i in 0..10 {
-            if let Ok(s) = IpcStream::connect(format!("{dir}/discord-ipc-{i}")) {
+            let path = format!("{dir}/discord-ipc-{i}");
+            if let Ok(s) = IpcStream::connect(&path) {
                 s.set_read_timeout(Some(Duration::from_secs(5))).ok();
                 return Some(s);
             }
@@ -176,14 +215,14 @@ fn write_frame(s: &mut IpcStream, op: u32, payload: &str) -> std::io::Result<()>
 }
 
 #[cfg(any(unix, windows))]
-fn read_frame(s: &mut IpcStream) -> std::io::Result<()> {
+fn read_frame_body(s: &mut IpcStream) -> std::io::Result<String> {
     use std::io::Read;
     let mut hdr = [0u8; 8];
     s.read_exact(&mut hdr)?;
     let len = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
     let mut body = vec![0u8; len];
     s.read_exact(&mut body)?;
-    Ok(())
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 #[cfg(any(unix, windows))]
