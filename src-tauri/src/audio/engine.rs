@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Read};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rodio::{Decoder, OutputStream, Sink, Source};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
@@ -214,6 +214,17 @@ fn audio_thread(
     let mut last_emit_state: Option<PlaybackState> = None;
     let mut last_emit_pos: u64 = 0;
     let mut last_emit_vol: f32 = 0.0;
+    // Epoch-based position tracking. We derive source position entirely
+    // from wall-clock time, avoiding rodio's get_pos() which mixes
+    // wall-clock and source-time domains depending on speed.
+    //
+    // source_pos = epoch_source_ms + elapsed_since_epoch * epoch_speed
+    //
+    // A new epoch starts on: play, seek, speed change, or resume.
+    let mut epoch_start: Option<Instant> = None;
+    let mut epoch_source_ms: u64 = 0;
+    let mut epoch_speed: f32 = 1.0;
+    let mut paused_pos_ms: Option<u64> = None;
     // Fade structures for inline processing
     enum FadeAction {
         Pause,
@@ -262,6 +273,9 @@ fn audio_thread(
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
+                    epoch_start = None;
+                    epoch_source_ms = 0;
+                    paused_pos_ms = None;
                     active_id = Some(video_id.clone());
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
 
@@ -318,9 +332,13 @@ fn audio_thread(
 
                         duration_ms.store(dur, Ordering::Release);
                         position_ms.store(0, Ordering::Release);
-                        new_sink.set_speed(*speed.read().unwrap());
+                        epoch_speed = *speed.read().unwrap();
+                        new_sink.set_speed(epoch_speed);
                         sink = Some(new_sink);
                         *state.write().unwrap() = PlaybackState::Playing;
+                        epoch_source_ms = 0;
+                        epoch_start = Some(Instant::now());
+                        paused_pos_ms = None;
 
                         active_fade = Some(ActiveFade {
                             start_vol: 0.0,
@@ -353,6 +371,12 @@ fn audio_thread(
                 }
                 AudioCommand::Pause => {
                     if let Some(ref s) = sink {
+                        // Snapshot source position before pausing
+                        if let Some(start) = epoch_start {
+                            let wall_ms = start.elapsed().as_millis() as u64;
+                            paused_pos_ms = Some(epoch_source_ms + (wall_ms as f64 * epoch_speed as f64) as u64);
+                        }
+                        epoch_start = None;
                         active_fade = Some(ActiveFade {
                             start_vol: s.volume(),
                             target_vol: 0.0,
@@ -366,6 +390,11 @@ fn audio_thread(
                     if let Some(ref s) = sink {
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
+                        // Start new epoch from paused position
+                        epoch_source_ms = paused_pos_ms.unwrap_or(0);
+                        epoch_speed = *speed.read().unwrap();
+                        epoch_start = Some(Instant::now());
+                        paused_pos_ms = None;
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
 
                         active_fade = Some(ActiveFade {
@@ -391,6 +420,9 @@ fn audio_thread(
                     }
                     *state.write().unwrap() = PlaybackState::Stopped;
                     active_id = None;
+                    epoch_start = None;
+                    epoch_source_ms = 0;
+                    paused_pos_ms = None;
                     position_ms.store(0, Ordering::Release);
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
                 }
@@ -415,11 +447,23 @@ fn audio_thread(
                 }
                 AudioCommand::Seek(secs) => {
                     if let Some(ref s) = sink {
-                        let d = Duration::from_secs_f64(secs.max(0.0));
+                        // rodio's Speed::try_seek multiplies pos by the speed factor,
+                        // so we pre-divide to get the correct source-time seek position.
+                        let source_secs = secs.max(0.0);
+                        let seek_secs = source_secs / epoch_speed as f64;
+                        let d = Duration::from_secs_f64(seek_secs);
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
                         } else {
-                            position_ms.store((secs * 1000.0) as u64, Ordering::Release);
+                            let target = (source_secs * 1000.0) as u64;
+                            if paused_pos_ms.is_some() {
+                                paused_pos_ms = Some(target);
+                            } else {
+                                epoch_source_ms = target;
+                                epoch_speed = *speed.read().unwrap();
+                                epoch_start = Some(Instant::now());
+                            }
+                            position_ms.store(target, Ordering::Release);
                         }
                     }
                 }
@@ -449,6 +493,13 @@ fn audio_thread(
                     let clamped = s.clamp(0.25, 3.0);
                     *speed.write().unwrap() = clamped;
                     if let Some(ref sk) = sink {
+                        // Snapshot current source position and start new epoch
+                        if let Some(start) = epoch_start {
+                            let wall_ms = start.elapsed().as_millis() as u64;
+                            epoch_source_ms += (wall_ms as f64 * epoch_speed as f64) as u64;
+                            epoch_start = Some(Instant::now());
+                        }
+                        epoch_speed = clamped;
                         sk.set_speed(clamped);
                     }
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
@@ -514,20 +565,28 @@ fn audio_thread(
 
         let mut track_ended = false;
 
+        // Compute current source position from epoch
+        let cur_source_ms = if let Some(pause_pos) = paused_pos_ms {
+            pause_pos
+        } else if let Some(start) = epoch_start {
+            let wall_ms = start.elapsed().as_millis() as u64;
+            epoch_source_ms + (wall_ms as f64 * epoch_speed as f64) as u64
+        } else {
+            0
+        };
+        position_ms.store(cur_source_ms, Ordering::Release);
+
         if let Some(ref s) = sink {
             if !s.empty() {
-                let pos = s.get_pos().as_millis() as u64;
                 let dur = duration_ms.load(Ordering::Relaxed);
-                position_ms.store(pos, Ordering::Release);
-
                 // Force completion if position far exceeds reported duration
                 // (guards against decoders that don't EOF cleanly)
                 if dur > 0
-                    && pos > dur + 2000
+                    && cur_source_ms > dur + 2000
                     && *state.read().unwrap() == PlaybackState::Playing
                 {
                     eprintln!(
-                        "[sunder] position ({pos}ms) exceeded duration ({dur}ms), forcing track end"
+                        "[sunder] position ({cur_source_ms}ms) exceeded duration ({dur}ms), forcing track end"
                     );
                     track_ended = true;
                 }
@@ -544,6 +603,9 @@ fn audio_thread(
             active_fade = None;
             *state.write().unwrap() = PlaybackState::Idle;
             active_id = None;
+            epoch_start = None;
+            epoch_source_ms = 0;
+            paused_pos_ms = None;
             position_ms.store(0, Ordering::Release);
             let _ = app.emit("track-finished", ());
         }
