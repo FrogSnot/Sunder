@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { search, searchLocal } from "../ipc/bridge";
+  import { searchLocal } from "../ipc/bridge";
   import { searchState } from "../state/search.svelte";
-  import { toastState } from "../state/toast.svelte";
 
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -9,36 +8,30 @@
     const q = searchState.query.trim();
     if (!q) {
       searchState.results = [];
+      searchState.hasMore = false;
+      searchState.limit = 20;
       return;
     }
 
+    searchState.hasMore = false;
     try {
       const local = await searchLocal(q);
       if (local.length > 0) searchState.results = local;
     } catch {}
 
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => remoteSearch(q), 400);
-  }
-
-  async function remoteSearch(q: string) {
-    if (!q) return;
-    searchState.searching = true;
-    try {
-      const res = await search(q);
-      searchState.results = res.tracks;
-    } catch (e) {
-      console.error("search failed:", e);
-      toastState.add(`Search failed: ${e}`, "error", 8000);
-    } finally {
-      searchState.searching = false;
-    }
+    debounceTimer = setTimeout(() => {
+      searchState.limit = 20;
+      searchState.remoteSearch(q);
+    }, 400);
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       searchState.query = "";
       searchState.results = [];
+      searchState.hasMore = false;
+      searchState.limit = 20;
     }
   }
 </script>

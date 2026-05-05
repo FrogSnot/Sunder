@@ -25,10 +25,11 @@ use crate::models::{Playlist, SearchResult, SearchSource, Track};
 #[tauri::command]
 pub async fn search(
     query: String,
+    limit: Option<usize>,
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
 ) -> Result<SearchResult, String> {
-    let limit = 10;
+    let limit = limit.unwrap_or(20).min(100);
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
     if !local.is_empty() {
         return Ok(SearchResult { tracks: local, source: SearchSource::Local });

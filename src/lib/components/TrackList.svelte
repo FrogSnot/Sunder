@@ -65,6 +65,15 @@
         <span class="track-duration">{formatDuration(track.duration_secs)}</span>
       </button>
     {/each}
+    {#if searchState.hasMore}
+      <button
+        class="load-more"
+        onclick={() => searchState.loadMore()}
+        disabled={searchState.searching}
+      >
+        {searchState.searching ? "Loading..." : "Load more"}
+      </button>
+    {/if}
   </div>
 {/if}
 
@@ -166,5 +175,29 @@
     color: var(--text-muted);
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
+  }
+
+  .load-more {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    background: var(--bg-elevated);
+    border: none;
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 200ms ease, color 200ms ease;
+  }
+
+  .load-more:hover:not(:disabled) {
+    background: var(--bg-overlay);
+    color: var(--text-primary);
+  }
+
+  .load-more:disabled {
+    cursor: default;
+    opacity: 0.6;
   }
 </style>

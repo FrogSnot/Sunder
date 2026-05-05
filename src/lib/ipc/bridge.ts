@@ -7,8 +7,8 @@ import { player } from "../state/player.svelte";
 import { config } from "../state/config.svelte";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
 
-export async function search(query: string): Promise<SearchResult> {
-  return invoke<SearchResult>("search", { query });
+export async function search(query: string, limit = 20): Promise<SearchResult> {
+  return invoke<SearchResult>("search", { query, limit });
 }
 
 export async function searchLocal(query: string): Promise<Track[]> {

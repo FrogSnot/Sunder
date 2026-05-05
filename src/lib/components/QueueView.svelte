@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { playTrack } from "../ipc/bridge";
+  import { playTrack, createPlaylist, addToPlaylist } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
+  import { toastState } from "../state/toast.svelte";
   import { fly } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
@@ -110,6 +111,41 @@
     player.clearQueue();
   }
 
+  let savingAsPlaylist = $state(false);
+  let newPlaylistName = $state("");
+  let saveInput = $state<HTMLInputElement | null>(null);
+  let saving = $state(false);
+
+  function startSaveAsPlaylist() {
+    newPlaylistName = "My Queue";
+    savingAsPlaylist = true;
+    setTimeout(() => saveInput?.select(), 0);
+  }
+
+  function cancelSave() {
+    savingAsPlaylist = false;
+    newPlaylistName = "";
+  }
+
+  async function confirmSave() {
+    const name = newPlaylistName.trim();
+    if (!name || saving) return;
+    saving = true;
+    try {
+      const playlist = await createPlaylist(name);
+      for (const track of queue) {
+        await addToPlaylist(playlist.id, track.id);
+      }
+      toastState.add(`Saved "${name}" with ${queue.length} tracks`, "info", 4000);
+      savingAsPlaylist = false;
+      newPlaylistName = "";
+    } catch (e) {
+      toastState.add(`Failed to save playlist: ${e}`, "error", 6000);
+    } finally {
+      saving = false;
+    }
+  }
+
   function handleContext(e: MouseEvent, track: Track) {
     ctxMenu.open(e, track);
   }
@@ -151,21 +187,52 @@
     <h2 class="queue-title">Queue</h2>
     {#if queue.length > 0}
       <div class="queue-actions">
-        <button class="action-btn" onclick={handleShuffle} aria-label="Shuffle queue">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
-            <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
-            <line x1="4" y1="4" x2="9" y2="9" />
-          </svg>
-          Shuffle
-        </button>
-        <button class="action-btn clear" onclick={handleClear} aria-label="Clear queue">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-          </svg>
-          Clear
-        </button>
+        {#if savingAsPlaylist}
+          <div class="save-inline" in:fly={{ x: 8, duration: 150 }}>
+            <input
+              class="save-input"
+              type="text"
+              bind:value={newPlaylistName}
+              bind:this={saveInput}
+              placeholder="Playlist name"
+              onkeydown={(e) => { if (e.key === 'Enter') confirmSave(); else if (e.key === 'Escape') cancelSave(); }}
+            />
+            <button class="action-btn save-confirm" onclick={confirmSave} disabled={saving} aria-label="Confirm">
+              {#if saving}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+              {:else}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              {/if}
+            </button>
+            <button class="action-btn" onclick={cancelSave} aria-label="Cancel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        {:else}
+          <button class="action-btn" onclick={startSaveAsPlaylist} aria-label="Save queue as playlist">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save
+          </button>
+          <button class="action-btn" onclick={handleShuffle} aria-label="Shuffle queue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" />
+              <polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" />
+              <line x1="4" y1="4" x2="9" y2="9" />
+            </svg>
+            Shuffle
+          </button>
+          <button class="action-btn clear" onclick={handleClear} aria-label="Clear queue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+            </svg>
+            Clear
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -350,6 +417,30 @@
   .action-btn svg { width: 14px; height: 14px; }
 
   .action-btn.clear:hover { color: var(--error); }
+
+  .save-inline {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .save-input {
+    background: var(--bg-overlay);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    padding: 5px 10px;
+    outline: none;
+    width: 160px;
+    transition: border-color 200ms ease;
+  }
+
+  .save-input:focus {
+    border-color: var(--accent-dim);
+  }
+
+  .save-confirm:hover { color: var(--accent); }
 
   .section-label {
     font-size: 0.75rem;
