@@ -1,5 +1,5 @@
 use tauri::State;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 
 use crate::config::{AppConfig, ConfigManager};
@@ -374,132 +374,372 @@ pub async fn get_recently_played(db: State<'_, SearchCache>) -> Result<Vec<Track
 pub async fn get_explore(
     db: State<'_, SearchCache>,
     extractor: State<'_, Extractor>,
-) -> Result<serde_json::Value, String> {
+) -> Result<ExploreResponse, String> {
     let listen_count = db.listen_count().unwrap_or(0);
-    let mut sections: Vec<serde_json::Value> = Vec::new();
+    let mut sections: Vec<ExploreSection> = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
 
-    // Collect all (title, query, limit) to search concurrently
-    let mut queries: Vec<(String, String, usize)> = Vec::new();
-
-    if listen_count < 5 {
-        let starters = [
-            ("Popular Right Now", "popular music hits"),
-            ("Chill Vibes", "chill relaxing music"),
-            ("Upbeat Energy", "upbeat energetic songs"),
-            ("Discover Indie", "indie music discover"),
-            ("Hip-Hop Spotlight", "hip hop rap new music"),
-            ("Electronic Beats", "electronic dance music"),
-            ("Acoustic Sessions", "acoustic singer songwriter"),
-            ("R&B Soul", "rnb soul music"),
-        ];
-        let offset = chrono_minute() % starters.len();
-        let count = 5.min(starters.len());
-        for i in 0..count {
-            let (title, query) = starters[(offset + i) % starters.len()];
-            queries.push((title.to_string(), query.to_string(), 8));
-        }
+    let mut queries = if listen_count < 5 {
+        starter_queries()
     } else {
-        let recent = db.recently_played(10).unwrap_or_default();
-        let top_artists = db.top_artists(8).unwrap_or_default();
-        let keywords = db.title_keywords(15).unwrap_or_default();
-        let recent_ids = db.recent_track_ids(7).unwrap_or_default();
+        let recent = db.recently_played(RECENTLY_PLAYED_LIMIT).unwrap_or_default();
+        let artist_signals = db.artist_affinities(12).unwrap_or_default();
+        let keywords = db.title_keywords(20).unwrap_or_default();
+        let recent_ids = db.recent_track_ids(14).unwrap_or_default();
         seen_ids.extend(recent_ids);
 
         if !recent.is_empty() {
-            sections.push(serde_json::json!({ "title": "Recently Played", "tracks": recent }));
+            seen_ids.extend(recent.iter().map(|track| track.id.clone()));
+            sections.push(ExploreSection {
+                title: "Jump Back In".to_string(),
+                tracks: recent.clone(),
+            });
         }
 
-        for artist in top_artists.iter().take(3) {
-            let strategies = [
-                format!("{artist} similar artists music"),
-                format!("{artist} fans also like"),
-                format!("{artist} type music"),
-            ];
-            let pick = simple_hash(artist) % strategies.len();
-            queries.push((
-                format!("Because you listen to {artist}"),
-                strategies[pick].clone(),
-                8,
-            ));
-        }
+        personalized_queries(&artist_signals, &keywords, &recent, listen_count)
+    };
 
-        let mood_keywords: Vec<&str> = keywords
-            .iter()
-            .filter(|(w, count)| {
-                *count >= 2
-                    && !top_artists
-                        .iter()
-                        .any(|a| a.to_lowercase().contains(w.as_str()))
-            })
-            .take(6)
-            .map(|(w, _)| w.as_str())
-            .collect();
+    dedupe_queries(&mut queries);
+    queries.sort_by(|a, b| b.score.cmp(&a.score));
+    queries.truncate(MAX_EXPLORE_QUERIES);
 
-        if mood_keywords.len() >= 2 {
-            for chunk in mood_keywords.chunks(2).take(2) {
-                let query = format!("{} music", chunk.join(" "));
-                let title = format!(
-                    "More {}",
-                    chunk.iter().map(|w| capitalize(w)).collect::<Vec<_>>().join(" & ")
-                );
-                queries.push((title, query, 8));
-            }
-        }
-
-        if top_artists.len() >= 4 {
-            let a1 = &top_artists[0];
-            let a2 = &top_artists[top_artists.len() / 2];
-            queries.push(("Discovery Mix".to_string(), format!("{a1} {a2} mix playlist"), 8));
-        }
-
-        if top_artists.len() >= 5 {
-            let deep = &top_artists[top_artists.len() - 1];
-            queries.push((format!("Dig Deeper: {deep}"), format!("{deep} best songs"), 6));
-        }
-
-        if !keywords.is_empty() {
-            let idx = simple_hash(top_artists.first().map(|s| s.as_str()).unwrap_or(""))
-                % keywords.len();
-            let word = &keywords[idx].0;
-            if !mood_keywords.contains(&word.as_str()) {
-                queries.push((
-                    format!("You Might Like: {}", capitalize(word)),
-                    format!("{word} songs playlist"),
-                    8,
-                ));
-            }
-        }
-    }
-
-    // Run all searches concurrently
     let results: Vec<Vec<Track>> = futures::future::join_all(
-        queries.iter().map(|(_, query, limit)| async {
-            match extractor.search(query, *limit).await {
-                Ok(t) => t,
-                Err(_) => extractor.search_youtube(query, *limit).await.unwrap_or_default(),
+        queries.iter().map(|seed| async {
+            let mut tracks = Vec::new();
+            let mut result_seen = HashSet::new();
+
+            if let Ok(music_tracks) = extractor.search(seed.query.as_str(), seed.limit).await {
+                append_unique(&mut tracks, &mut result_seen, music_tracks);
             }
+
+            if tracks.len() < EXPLORE_TRACK_LIMIT {
+                let fill_limit = seed.limit.saturating_sub(tracks.len()).max(10);
+                if let Ok(youtube_tracks) = extractor.search_youtube(seed.query.as_str(), fill_limit).await {
+                    append_unique(&mut tracks, &mut result_seen, youtube_tracks);
+                }
+            }
+
+            tracks
         })
     ).await;
 
-    // Process results in order, deduplicating and building sections
-    for ((title, _, _), tracks) in queries.into_iter().zip(results) {
-        if !tracks.is_empty() {
-            let _ = db.upsert_tracks(&tracks);
-            let filtered: Vec<Track> = tracks
-                .into_iter()
-                .filter(|t| seen_ids.insert(t.id.clone()))
-                .collect();
-            if !filtered.is_empty() {
-                sections.push(serde_json::json!({
-                    "title": title,
-                    "tracks": filtered,
-                }));
-            }
+    for (seed, tracks) in queries.into_iter().zip(results) {
+        let filtered = select_section_tracks(tracks, &mut seen_ids);
+        if !filtered.is_empty() {
+            let _ = db.upsert_tracks(&filtered);
+            sections.push(ExploreSection {
+                title: seed.title,
+                tracks: filtered,
+            });
         }
     }
 
-    Ok(serde_json::json!({ "sections": sections }))
+    Ok(ExploreResponse { sections })
+}
+
+const RECENTLY_PLAYED_LIMIT: usize = 20;
+const EXPLORE_TRACK_LIMIT: usize = 24;
+const MAX_EXPLORE_QUERIES: usize = 8;
+const MAX_TRACKS_PER_ARTIST_IN_SECTION: usize = 3;
+
+#[derive(serde::Serialize)]
+pub struct ExploreResponse {
+    sections: Vec<ExploreSection>,
+}
+
+#[derive(serde::Serialize)]
+struct ExploreSection {
+    title: String,
+    tracks: Vec<Track>,
+}
+
+#[derive(Clone)]
+struct ExploreQuery {
+    title: String,
+    query: String,
+    limit: usize,
+    score: i64,
+}
+
+fn starter_queries() -> Vec<ExploreQuery> {
+    let starters = [
+        ("Popular Right Now", "popular music hits official audio", 92),
+        ("Fresh Finds", "new music discoveries official audio", 88),
+        ("Chill Vibes", "chill relaxing songs official audio", 84),
+        ("Upbeat Energy", "upbeat energetic songs official audio", 82),
+        ("Indie Corner", "indie music discoveries official audio", 80),
+        ("Electronic Beats", "electronic dance songs official audio", 78),
+        ("Acoustic Sessions", "acoustic singer songwriter songs", 76),
+        ("R&B Soul", "rnb soul songs official audio", 74),
+    ];
+    let offset = chrono_bucket() % starters.len();
+    let mut queries = Vec::new();
+    for i in 0..5.min(starters.len()) {
+        let (title, query, score) = starters[(offset + i) % starters.len()];
+        queries.push(ExploreQuery {
+            title: title.to_string(),
+            query: query.to_string(),
+            limit: 32,
+            score: score - i as i64,
+        });
+    }
+    queries
+}
+
+fn personalized_queries(
+    artist_signals: &[(String, i64, i64)],
+    keywords: &[(String, i64)],
+    recent: &[Track],
+    listen_count: i64,
+) -> Vec<ExploreQuery> {
+    let mut queries = Vec::new();
+
+    for (rank, (artist, total, recent_count)) in artist_signals.iter().take(4).enumerate() {
+        let strategies = [
+            format!("{artist} similar artists songs"),
+            format!("{artist} radio similar songs"),
+            format!("music like {artist} official audio"),
+        ];
+        let pick = simple_hash(artist) % strategies.len();
+        queries.push(ExploreQuery {
+            title: format!("{artist} Radio"),
+            query: strategies[pick].clone(),
+            limit: 32,
+            score: 130 - rank as i64 * 8 + (*total).min(20) * 2 + (*recent_count).min(10) * 3,
+        });
+    }
+
+    for (rank, track) in recent.iter().take(2).enumerate() {
+        let title = clean_track_title(&track.title);
+        if title.is_empty() || track.artist.trim().is_empty() {
+            continue;
+        }
+        queries.push(ExploreQuery {
+            title: format!("More Like {}", compact_title(&title, 30)),
+            query: format!("songs like {} {}", track.artist, title),
+            limit: 28,
+            score: 112 - rank as i64 * 7,
+        });
+    }
+
+    if artist_signals.len() >= 2 {
+        let first = &artist_signals[0].0;
+        let second = &artist_signals[artist_signals.len() / 2].0;
+        queries.push(ExploreQuery {
+            title: "Discovery Mix".to_string(),
+            query: format!("{first} {second} similar songs"),
+            limit: 32,
+            score: 104,
+        });
+    }
+
+    let mood_keywords = mood_keywords(keywords, artist_signals);
+    for (rank, chunk) in mood_keywords.chunks(2).take(2).enumerate() {
+        if chunk.len() < 2 {
+            continue;
+        }
+        queries.push(ExploreQuery {
+            title: format!(
+                "More {}",
+                chunk.iter().map(|word| capitalize(word)).collect::<Vec<_>>().join(" & ")
+            ),
+            query: format!("{} songs official audio", chunk.join(" ")),
+            limit: 28,
+            score: 96 - rank as i64 * 6,
+        });
+    }
+
+    if artist_signals.len() >= 5 {
+        let deep = &artist_signals[artist_signals.len() - 1].0;
+        queries.push(ExploreQuery {
+            title: format!("Deep Cuts: {deep}"),
+            query: format!("{deep} deep cuts underrated songs"),
+            limit: 28,
+            score: 86,
+        });
+    }
+
+    if let Some((artist, _, _)) = artist_signals.first() {
+        queries.push(ExploreQuery {
+            title: "Fresh For You".to_string(),
+            query: if listen_count >= 20 {
+                format!("new songs similar to {artist}")
+            } else {
+                format!("popular songs similar to {artist}")
+            },
+            limit: 28,
+            score: 82,
+        });
+    }
+
+    if queries.is_empty() {
+        starter_queries()
+    } else {
+        queries
+    }
+}
+
+fn mood_keywords(
+    keywords: &[(String, i64)],
+    artist_signals: &[(String, i64, i64)],
+) -> Vec<String> {
+    let artist_blob = artist_signals
+        .iter()
+        .map(|(artist, _, _)| artist.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    keywords
+        .iter()
+        .filter(|(word, count)| *count >= 2 && !artist_blob.contains(word.as_str()))
+        .take(6)
+        .map(|(word, _)| word.clone())
+        .collect()
+}
+
+fn dedupe_queries(queries: &mut Vec<ExploreQuery>) {
+    let mut seen = HashSet::new();
+    queries.retain(|seed| {
+        let key = format!("{}|{}", seed.title.to_lowercase(), seed.query.to_lowercase());
+        seen.insert(key)
+    });
+}
+
+fn append_unique(tracks: &mut Vec<Track>, seen: &mut HashSet<String>, incoming: Vec<Track>) {
+    for track in incoming {
+        if seen.insert(track.id.clone()) {
+            tracks.push(track);
+        }
+    }
+}
+
+fn select_section_tracks(tracks: Vec<Track>, seen_ids: &mut HashSet<String>) -> Vec<Track> {
+    let mut candidates: Vec<(i64, usize, Track)> = tracks
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, track)| {
+            if seen_ids.contains(&track.id) || !looks_like_song(&track) {
+                return None;
+            }
+            Some((track_quality(&track, index), index, track))
+        })
+        .collect();
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+
+    let mut selected = Vec::new();
+    let mut artist_counts: HashMap<String, usize> = HashMap::new();
+    let mut title_keys: HashSet<String> = HashSet::new();
+    for (_, _, track) in candidates {
+        let artist_key = normalized_key(&track.artist);
+        let title_key = normalized_key(&clean_track_title(&track.title));
+        let artist_count = artist_counts.get(&artist_key).copied().unwrap_or(0);
+        if !artist_key.is_empty() && artist_count >= MAX_TRACKS_PER_ARTIST_IN_SECTION {
+            continue;
+        }
+
+        if !title_key.is_empty() && title_keys.contains(&title_key) {
+            continue;
+        }
+
+        if !seen_ids.insert(track.id.clone()) {
+            continue;
+        }
+
+        if !title_key.is_empty() {
+            title_keys.insert(title_key);
+        }
+
+        if !artist_key.is_empty() {
+            artist_counts.insert(artist_key, artist_count + 1);
+        }
+
+        selected.push(track);
+        if selected.len() >= EXPLORE_TRACK_LIMIT {
+            break;
+        }
+    }
+    selected
+}
+
+fn normalized_key(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn track_quality(track: &Track, index: usize) -> i64 {
+    let mut score = 100 - index as i64;
+    let duration = track.duration_secs;
+    if (120.0..=420.0).contains(&duration) {
+        score += 24;
+    } else if (60.0..=600.0).contains(&duration) {
+        score += 10;
+    } else if duration > 900.0 {
+        score -= 80;
+    }
+
+    if !track.thumbnail.is_empty() {
+        score += 8;
+    }
+
+    let title = track.title.to_lowercase();
+    if title.contains("official audio") || title.contains("official video") {
+        score += 6;
+    }
+    if title.contains("full album")
+        || title.contains("complete album")
+        || title.contains("compilation")
+        || title.contains("reaction")
+        || title.contains("tutorial")
+    {
+        score -= 90;
+    }
+
+    score
+}
+
+fn looks_like_song(track: &Track) -> bool {
+    let duration = track.duration_secs;
+    if duration > 0.0 && !(30.0..=1200.0).contains(&duration) {
+        return false;
+    }
+
+    let title = track.title.to_lowercase();
+    let long_form = [
+        "full album",
+        "complete album",
+        "1 hour",
+        "hour mix",
+        "playlist",
+        "compilation",
+        "reaction",
+        "tutorial",
+        "documentary",
+        "interview",
+    ];
+    if duration > 480.0 && long_form.iter().any(|needle| title.contains(needle)) {
+        return false;
+    }
+
+    true
+}
+
+fn clean_track_title(title: &str) -> String {
+    let mut cleaned = title.to_string();
+    for marker in ["(", "[", " - Official", " | Official"] {
+        if let Some(idx) = cleaned.find(marker) {
+            cleaned.truncate(idx);
+        }
+    }
+    cleaned.trim().to_string()
+}
+
+fn compact_title(title: &str, limit: usize) -> String {
+    if title.chars().count() <= limit {
+        return title.to_string();
+    }
+    let mut compact = title.chars().take(limit.saturating_sub(1)).collect::<String>();
+    compact.push_str("...");
+    compact
 }
 
 fn capitalize(s: &str) -> String {
@@ -514,10 +754,10 @@ fn simple_hash(s: &str) -> usize {
     s.bytes().fold(0usize, |acc, b| acc.wrapping_mul(31).wrapping_add(b as usize))
 }
 
-fn chrono_minute() -> usize {
+fn chrono_bucket() -> usize {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    (secs / 60) as usize
+    (secs / (60 * 60 * 6)) as usize
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

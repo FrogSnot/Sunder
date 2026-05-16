@@ -370,16 +370,27 @@ impl SearchCache {
         Ok(())
     }
 
-    pub fn top_artists(&self, limit: usize) -> Result<Vec<String>, AppError> {
+    pub fn artist_affinities(&self, limit: usize) -> Result<Vec<(String, i64, i64)>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT t.artist, COUNT(*) as cnt
+            "SELECT t.artist,
+                    COUNT(*) as total_count,
+                    SUM(CASE WHEN h.played >= datetime('now', '-30 days') THEN 1 ELSE 0 END) as recent_count
              FROM listen_history h
              JOIN tracks t ON t.id = h.track_id
-             GROUP BY t.artist ORDER BY cnt DESC LIMIT ?1",
+             WHERE TRIM(t.artist) <> ''
+             GROUP BY t.artist
+             ORDER BY total_count DESC, recent_count DESC
+             LIMIT ?1",
         )?;
         let artists = stmt
-            .query_map(params![limit as i64], |row| row.get::<_, String>(0))?
+            .query_map(params![limit as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
             .filter_map(|r| r.ok())
             .collect();
         Ok(artists)
@@ -388,10 +399,11 @@ impl SearchCache {
     pub fn recently_played(&self, limit: usize) -> Result<Vec<Track>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT DISTINCT t.id, t.title, t.artist, t.thumbnail, t.duration
+            "SELECT t.id, t.title, t.artist, t.thumbnail, t.duration
              FROM listen_history h
              JOIN tracks t ON t.id = h.track_id
-             ORDER BY h.played DESC LIMIT ?1",
+             GROUP BY t.id
+             ORDER BY MAX(h.played) DESC LIMIT ?1",
         )?;
         let tracks = stmt
             .query_map(params![limit as i64], |row| {
