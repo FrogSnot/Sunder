@@ -6,6 +6,7 @@
   import { fly } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
+  import TrackArt from "./TrackArt.svelte";
   import type { Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
@@ -247,12 +248,12 @@
       <div class="section-label">Now Playing</div>
       {#key nowPlaying.id}
         <div class="now-playing-card" in:fly={{ y: -20, duration: 300 }}>
+          <TrackArt track={nowPlaying} onplay={() => handlePlay(currentIndex)} active playing={player.isPlaying} size={48} />
           <button
             class="track-play np-track"
             onclick={() => handlePlay(currentIndex)}
             oncontextmenu={(e) => handleContext(e, nowPlaying)}
           >
-            <img class="thumb np-thumb" src={nowPlaying.thumbnail || ""} alt="" loading="lazy" />
             <div class="track-info">
               <span class="track-title np-title">{nowPlaying.title}</span>
               <span class="track-artist">{nowPlaying.artist}</span>
@@ -289,12 +290,12 @@
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
             <span class="track-num">{ri + 1}</span>
+            <TrackArt {track} onplay={() => handlePlay(queueIdx)} size={40} />
             <button
               class="track-play"
               onclick={() => handlePlay(queueIdx)}
               oncontextmenu={(e) => handleContext(e, track)}
             >
-              <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
               <div class="track-info">
                 <span class="track-title">{track.title}</span>
                 <span class="track-artist">{track.artist}</span>
@@ -338,12 +339,12 @@
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
             <span class="track-num">{ri + 1}</span>
+            <TrackArt {track} onplay={() => handlePlay(ri)} size={40} />
             <button
               class="track-play"
               onclick={() => handlePlay(ri)}
               oncontextmenu={(e) => handleContext(e, track)}
             >
-              <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
               <div class="track-info">
                 <span class="track-title">{track.title}</span>
                 <span class="track-artist">{track.artist}</span>
@@ -494,7 +495,7 @@
   .track-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
@@ -537,16 +538,14 @@
     border-left: 3px solid var(--accent);
     margin-bottom: 4px;
     transform-origin: top center;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
   }
 
   .np-track {
-    padding: 12px 14px;
-  }
-
-  .np-thumb {
-    width: 48px;
-    height: 48px;
-    box-shadow: 0 0 16px rgba(212, 160, 23, 0.15);
+    padding: 0;
   }
 
   .np-title {
@@ -582,15 +581,6 @@
   }
 
   .track-play:hover { background: var(--bg-elevated); }
-
-  .thumb {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-sm);
-    object-fit: cover;
-    background: var(--bg-overlay);
-    flex-shrink: 0;
-  }
 
   .track-info {
     flex: 1;

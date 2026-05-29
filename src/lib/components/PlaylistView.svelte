@@ -14,12 +14,15 @@
     exportPlaylist,
     importPlaylistJson,
     refreshYtPlaylist,
+    downloadPlaylist,
   } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
   import { toastState } from "../state/toast.svelte";
+  import { downloads } from "../state/downloads.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
+  import TrackArt from "./TrackArt.svelte";
   import type { Playlist, Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
@@ -199,6 +202,15 @@
     if (first) await playTrack(first);
   }
 
+  function handleDownloadAll() {
+    if (nav.activePlaylistId === null || detailTracks.length === 0) return;
+    const id = nav.activePlaylistId;
+    downloads.register(detailTracks);
+    downloadPlaylist(id).catch(() => {
+      // per-track failures surface in the activity panel
+    });
+  }
+
   async function handleQuickPlay(p: Playlist) {
     try {
       const tracks = await getPlaylistTracks(p.id);
@@ -310,6 +322,14 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Play All
         </button>
+        <button class="export-btn" onclick={handleDownloadAll} aria-label="Download all tracks">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Download All
+        </button>
         <button class="export-btn" onclick={handleExport} aria-label="Export playlist">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -354,8 +374,8 @@
               <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>
             </span>
             <span class="track-num">{i + 1}</span>
+            <TrackArt {track} onplay={handlePlay} active={isActive(track)} playing={player.isPlaying} size={44} />
             <button class="track-play" onclick={() => handlePlay(track)}>
-              <img class="thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
               <div class="track-info">
                 <span class="track-title">{track.title}</span>
                 <span class="track-artist">{track.artist}</span>
@@ -684,7 +704,7 @@
   .detail-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 16px;
   }
 
@@ -692,6 +712,7 @@
     font-size: 1.3rem;
     font-weight: 700;
     color: var(--text-primary);
+    margin-right: auto;
   }
 
   .play-all-btn {
@@ -770,7 +791,7 @@
   .track-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 12px;
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
@@ -826,22 +847,13 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 10px 10px;
+    padding: 10px 0;
     border-radius: var(--radius);
     transition: background var(--transition);
     text-align: left;
   }
 
   .track-play:hover { background: var(--bg-elevated); }
-
-  .thumb {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-sm);
-    object-fit: cover;
-    background: var(--bg-overlay);
-    flex-shrink: 0;
-  }
 
   .track-info {
     flex: 1;

@@ -19,6 +19,7 @@ use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
 use crate::audio::equalizer::BAND_COUNT;
 use crate::db::SearchCache;
+use crate::downloads::DownloadManager;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
 
@@ -363,6 +364,106 @@ pub async fn refresh_yt_playlist(
         .map_err(|e| e.to_string())?;
 
     Ok(tracks.len() as i64)
+}
+
+async fn resolve_track(
+    track_id: &str,
+    db: &SearchCache,
+    extractor: &Extractor,
+) -> Result<Track, String> {
+    if let Ok(Some(track)) = db.get_track_by_id(track_id) {
+        return Ok(track);
+    }
+    extractor.metadata(track_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn download_track(
+    track_id: String,
+    app: tauri::AppHandle,
+    db: State<'_, SearchCache>,
+    dm: State<'_, DownloadManager>,
+    extractor: State<'_, Extractor>,
+) -> Result<(), String> {
+    let track = resolve_track(&track_id, &db, &extractor).await?;
+    dm.download(&app, &db, &track).await
+}
+
+#[tauri::command]
+pub async fn download_tracks(
+    track_ids: Vec<String>,
+    app: tauri::AppHandle,
+    db: State<'_, SearchCache>,
+    dm: State<'_, DownloadManager>,
+    extractor: State<'_, Extractor>,
+) -> Result<(), String> {
+    let mut tracks = db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
+    let resolved: HashSet<String> = tracks.iter().map(|t| t.id.clone()).collect();
+    for id in &track_ids {
+        if !resolved.contains(id) {
+            if let Ok(track) = extractor.metadata(id).await {
+                tracks.push(track);
+            }
+        }
+    }
+
+    let jobs = tracks.iter().map(|track| dm.download(&app, &db, track));
+    futures::future::join_all(jobs).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_playlist(
+    playlist_id: i64,
+    app: tauri::AppHandle,
+    db: State<'_, SearchCache>,
+    dm: State<'_, DownloadManager>,
+) -> Result<(), String> {
+    let tracks = db
+        .get_playlist_tracks(playlist_id)
+        .map_err(|e| e.to_string())?;
+    let jobs = tracks.iter().map(|track| dm.download(&app, &db, track));
+    futures::future::join_all(jobs).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_download(
+    track_id: String,
+    db: State<'_, SearchCache>,
+    dm: State<'_, DownloadManager>,
+) -> Result<(), String> {
+    dm.delete(&db, &track_id)
+}
+
+#[tauri::command]
+pub async fn is_track_downloaded(
+    track_id: String,
+    db: State<'_, SearchCache>,
+) -> Result<bool, String> {
+    db.is_downloaded(&track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_downloaded_ids(db: State<'_, SearchCache>) -> Result<Vec<String>, String> {
+    db.downloaded_ids().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_downloads(db: State<'_, SearchCache>) -> Result<Vec<Track>, String> {
+    db.downloaded_tracks().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_downloads_size(db: State<'_, SearchCache>) -> Result<i64, String> {
+    db.downloads_size().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_download_sizes(
+    db: State<'_, SearchCache>,
+) -> Result<Vec<(String, i64)>, String> {
+    db.download_sizes().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

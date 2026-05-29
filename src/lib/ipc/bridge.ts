@@ -2,10 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings } from "../types";
+import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings, DownloadEvent } from "../types";
 import { player } from "../state/player.svelte";
 import { config } from "../state/config.svelte";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
+import { downloads } from "../state/downloads.svelte";
 
 export async function search(query: string, limit = 20): Promise<SearchResult> {
   return invoke<SearchResult>("search", { query, limit });
@@ -197,6 +198,47 @@ export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
   return invoke<Track[]>("get_tracks_by_ids", { trackIds });
 }
 
+export async function downloadTrack(trackId: string): Promise<void> {
+  await invoke("download_track", { trackId });
+}
+
+export async function downloadTracks(trackIds: string[]): Promise<void> {
+  await invoke("download_tracks", { trackIds });
+}
+
+export async function downloadPlaylist(playlistId: number): Promise<void> {
+  await invoke("download_playlist", { playlistId });
+}
+
+export async function deleteDownload(trackId: string): Promise<void> {
+  await invoke("delete_download", { trackId });
+  downloads.markRemoved(trackId);
+}
+
+export async function listDownloadedIds(): Promise<string[]> {
+  return invoke<string[]>("list_downloaded_ids");
+}
+
+export async function getDownloads(): Promise<Track[]> {
+  return invoke<Track[]>("get_downloads");
+}
+
+export async function getDownloadsSize(): Promise<number> {
+  return invoke<number>("get_downloads_size");
+}
+
+export async function getDownloadSizes(): Promise<[string, number][]> {
+  return invoke<[string, number][]>("get_download_sizes");
+}
+
+export async function loadDownloads(): Promise<void> {
+  try {
+    downloads.setDownloaded(await listDownloadedIds());
+  } catch (e) {
+    console.error("load downloads:", e);
+  }
+}
+
 export async function restoreQueue(): Promise<void> {
   const { saved_queue, saved_queue_index } = config.current;
   if (!saved_queue?.length) return;
@@ -268,10 +310,15 @@ export function initProgressListener(): () => void {
   let unlistenNext: (() => void) | undefined;
   let unlistenPrev: (() => void) | undefined;
   let unlistenToggle: (() => void) | undefined;
+  let unlistenTrackDownload: (() => void) | undefined;
 
   listen<PlaybackProgress>("playback-progress", (event) => {
     player.updateFromProgress(event.payload);
   }).then((fn) => { unlistenProgress = fn; });
+
+  listen<DownloadEvent>("track-download", (event) => {
+    downloads.updateFromEvent(event.payload);
+  }).then((fn) => { unlistenTrackDownload = fn; });
 
   listen<{ percent: number; stage: string }>("download-progress", (event) => {
     player.downloadPercent = event.payload.percent;
@@ -323,6 +370,7 @@ export function initProgressListener(): () => void {
     unlistenNext?.();
     unlistenPrev?.();
     unlistenToggle?.();
+    unlistenTrackDownload?.();
   };
 }
 

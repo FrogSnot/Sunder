@@ -5,6 +5,7 @@
   import { toastState } from "../state/toast.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
+  import TrackArt from "./TrackArt.svelte";
   import type { Track } from "../types";
 
   let tracks = $derived(searchState.results);
@@ -45,25 +46,27 @@
 {:else}
   <div class="track-list">
     {#each tracks as track, i (track.id)}
-      <button
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
         class="track-row"
         class:active={isActive(track)}
-        onclick={() => handlePlay(track)}
         oncontextmenu={(e) => handleContext(e, track)}
         style="--i: {i}"
       >
-        <img
-          class="thumb"
-          src={track.thumbnail || ""}
-          alt=""
-          loading="lazy"
+        <TrackArt
+          {track}
+          onplay={handlePlay}
+          active={isActive(track)}
+          playing={player.isPlaying}
         />
-        <div class="track-info">
-          <span class="track-title">{track.title}</span>
-          <span class="track-artist">{track.artist}</span>
-        </div>
-        <span class="track-duration">{formatDuration(track.duration_secs)}</span>
-      </button>
+        <button class="track-play" onclick={() => handlePlay(track)}>
+          <div class="track-info">
+            <span class="track-title">{track.title}</span>
+            <span class="track-artist">{track.artist}</span>
+          </div>
+          <span class="track-duration">{formatDuration(track.duration_secs)}</span>
+        </button>
+      </div>
     {/each}
     {#if searchState.hasMore}
       <button
@@ -108,14 +111,24 @@
   .track-row {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 10px 14px;
+    gap: 12px;
+    padding: 10px 12px 10px 14px;
     border-radius: var(--radius);
     transition: background 200ms ease;
     text-align: left;
     width: 100%;
     animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
     animation-delay: calc(min(var(--i, 0), 15) * 30ms);
+  }
+
+  .track-play {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
   }
 
   .track-row:hover {
@@ -134,15 +147,6 @@
     inset: 0;
     border-radius: var(--radius);
     pointer-events: none;
-  }
-
-  .thumb {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--radius-sm);
-    object-fit: cover;
-    background: var(--bg-overlay);
-    flex-shrink: 0;
   }
 
   .track-info {

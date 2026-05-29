@@ -8,6 +8,7 @@
     { id: "explore", label: "Explore", icon: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" },
     { id: "queue", label: "Queue", icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" },
     { id: "playlists", label: "Playlists", icon: "M9 18V5l12-2v13M6 18a3 3 0 100-6 3 3 0 000 6zM18 16a3 3 0 100-6 3 3 0 000 6z" },
+    { id: "downloads", label: "Downloads", icon: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" },
   ];
 
   let update = $state<{ version: string; url: string } | null>(null);
@@ -60,6 +61,8 @@
       </button>
     {/each}
   </div>
+
+  <div class="sb-spacer" aria-hidden="true"></div>
 
   {#if update}
     <button class="update-hint" onclick={() => update && openUrl(update.url)}>
@@ -117,6 +120,11 @@
     position: relative;
   }
 
+  .sb-spacer {
+    flex: 1 1 auto;
+    min-height: 12px;
+  }
+
   .nav-pill {
     position: absolute;
     top: 0;
@@ -167,7 +175,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: auto 12px 12px;
+    margin: 0 12px 12px;
     padding: 8px 12px;
     font-size: 0.75rem;
     font-weight: 600;

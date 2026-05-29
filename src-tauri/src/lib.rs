@@ -2,6 +2,7 @@ mod audio;
 pub mod config;
 mod db;
 pub mod discord;
+mod downloads;
 mod error;
 mod extraction;
 mod ipc;
@@ -11,6 +12,7 @@ use tauri::{Emitter, Manager};
 use crate::config::ConfigManager;
 use audio::AudioHandle;
 use db::SearchCache;
+use downloads::DownloadManager;
 use extraction::Extractor;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -28,6 +30,7 @@ pub fn run() {
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
             app.manage(AudioHandle::new(app.handle().clone()));
             app.manage(Extractor::new());
+            app.manage(DownloadManager::new(&data_dir));
 
             let config_mgr = ConfigManager::new(&data_dir);
             let drpc = discord::DiscordPresence::new();
@@ -143,6 +146,15 @@ pub fn run() {
             ipc::commands::get_tracks_by_ids,
             ipc::commands::open_url,
             ipc::commands::refresh_yt_playlist,
+            ipc::commands::download_track,
+            ipc::commands::download_tracks,
+            ipc::commands::download_playlist,
+            ipc::commands::delete_download,
+            ipc::commands::is_track_downloaded,
+            ipc::commands::list_downloaded_ids,
+            ipc::commands::get_downloads,
+            ipc::commands::get_downloads_size,
+            ipc::commands::get_download_sizes,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

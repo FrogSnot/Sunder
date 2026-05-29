@@ -671,9 +671,14 @@ fn start_streaming(
     let out_template = cache_dir.join(format!("{video_id}.%(ext)s"));
     let expected_path = cache_dir.join(format!("{video_id}.mp3"));
 
+    // Offline-first: a persistently downloaded copy always wins. It never
+    // touches the network and is exempt from the LRU temp-cache cleanup.
+    let download_path =
+        crate::downloads::DownloadManager::dir_for(app).join(format!("{video_id}.mp3"));
+
     *state.write().unwrap() = PlaybackState::Buffering;
 
-    if !expected_path.exists() {
+    if !download_path.exists() && !expected_path.exists() {
         let _ = app.emit(
             "download-progress",
             serde_json::json!({
@@ -812,6 +817,8 @@ fn start_streaming(
                 expected_path.display()
             )));
         }
+    } else if download_path.exists() {
+        eprintln!("[sunder] offline hit: {}", download_path.display());
     } else {
         eprintln!("[sunder] cache hit: {}", expected_path.display());
     }
@@ -821,16 +828,23 @@ fn start_streaming(
         return Err(crate::error::AppError::Audio("session superseded".into()));
     }
 
-    let file_len = std::fs::metadata(&expected_path)
+    // Prefer the persistent offline copy when present.
+    let play_path = if download_path.exists() {
+        &download_path
+    } else {
+        &expected_path
+    };
+
+    let file_len = std::fs::metadata(play_path)
         .map(|m| m.len())
         .unwrap_or(0);
     eprintln!(
         "[sunder] audio ready: {} bytes at {}",
         file_len,
-        expected_path.display()
+        play_path.display()
     );
 
-    let file = std::fs::File::open(&expected_path).map_err(crate::error::AppError::Io)?;
+    let file = std::fs::File::open(play_path).map_err(crate::error::AppError::Io)?;
     let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 

@@ -74,6 +74,25 @@ impl SearchCache {
              CREATE INDEX IF NOT EXISTS idx_history_played ON listen_history(played DESC);",
         )?;
 
+        // Migration: downloads table. A legacy table lacking the expected
+        // columns is dropped and recreated (no compatible data to preserve).
+        let downloads_ok: i64 = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('downloads') WHERE name = 'downloaded'")
+            .and_then(|mut s| s.query_row([], |r| r.get(0)))
+            .unwrap_or(0);
+        if downloads_ok == 0 {
+            conn.execute_batch("DROP TABLE IF EXISTS downloads;")?;
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS downloads (
+                 track_id   TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+                 path       TEXT NOT NULL,
+                 size       INTEGER NOT NULL DEFAULT 0,
+                 downloaded TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_downloads_time ON downloads(downloaded DESC);",
+        )?;
+
         // Migration: add thumbnail to playlists if missing
         if let Err(e) = conn.execute("ALTER TABLE playlists ADD COLUMN thumbnail TEXT NOT NULL DEFAULT ''", []) {
             let msg = e.to_string();
@@ -368,6 +387,95 @@ impl SearchCache {
             params![track_id],
         )?;
         Ok(())
+    }
+
+    /// Record a track as persistently downloaded for offline playback.
+    pub fn mark_downloaded(&self, track_id: &str, path: &str, size: u64) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO downloads (track_id, path, size) VALUES (?1, ?2, ?3)
+             ON CONFLICT(track_id) DO UPDATE SET
+                 path = excluded.path,
+                 size = excluded.size,
+                 downloaded = datetime('now')",
+            params![track_id, path, size as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_download(&self, track_id: &str) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM downloads WHERE track_id = ?1", params![track_id])?;
+        Ok(())
+    }
+
+    pub fn is_downloaded(&self, track_id: &str) -> Result<bool, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM downloads WHERE track_id = ?1",
+                params![track_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        Ok(exists)
+    }
+
+    /// All downloaded track ids (used by the frontend to render offline badges).
+    pub fn downloaded_ids(&self) -> Result<Vec<String>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT track_id FROM downloads")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    /// Full track metadata for downloaded tracks, most recent first (offline library).
+    pub fn downloaded_tracks(&self) -> Result<Vec<Track>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT t.id, t.title, t.artist, t.thumbnail, t.duration
+             FROM downloads d
+             JOIN tracks t ON t.id = d.track_id
+             ORDER BY d.downloaded DESC",
+        )?;
+        let tracks = stmt
+            .query_map([], |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    stream_url: None,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(tracks)
+    }
+
+    /// Total size in bytes of all downloaded files.
+    pub fn downloads_size(&self) -> Result<i64, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let total: i64 = conn
+            .prepare_cached("SELECT COALESCE(SUM(size), 0) FROM downloads")?
+            .query_row([], |row| row.get(0))?;
+        Ok(total)
+    }
+
+    /// Per-track download sizes in bytes, as (track_id, size) pairs.
+    pub fn download_sizes(&self) -> Result<Vec<(String, i64)>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare_cached("SELECT track_id, COALESCE(size, 0) FROM downloads")?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
     }
 
     pub fn artist_affinities(&self, limit: usize) -> Result<Vec<(String, i64, i64)>, AppError> {

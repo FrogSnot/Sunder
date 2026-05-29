@@ -47,6 +47,15 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **JSON export/import** export any playlist to a JSON file and re-import it on another machine or as a backup
 - **Remove from context menu** right-click any track to remove it from the current playlist
 
+### Offline Downloads
+- **One-tap downloads** a download control lives on the corner of the album art on every track, everywhere (track lists, playlists, queue, explore, and the player bar)
+- **Live progress ring** the button animates through queued, downloading (with live percentage), and converting states, then settles into a green check that draws itself in
+- **Offline-first playback** once a track is saved, Sunder plays the local file instead of streaming, so it works with no connection
+- **Bulk playlist downloads** hit **Download All** on any playlist to queue every track at once
+- **Download activity panel** a floating popup in the bottom-right shows all in-flight downloads with per-track and overall progress bars, then a "complete" flourish when finished
+- **Offline Library tab** a dedicated Downloads view lists everything saved for offline playback, with Play All
+- **Persistent** the offline library is tracked in a local SQLite database and survives restarts
+
 ### System Integration
 - **MPRIS support** (Linux) full media player remote interface: play/pause, next, previous, metadata, and position exposed to desktop environments and media key daemons
 - **Windows media keys** HWND-based system media controller wired to the same events
@@ -64,6 +73,22 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **Warm animated UI** with spring physics, staggered entrances, glow pulses, and micro-interactions
 - **~15MB binary** with release optimizations (LTO, strip, single codegen unit)
 - **Zero telemetry**. Nothing leaves your machine except YouTube search queries
+
+### Data & Storage
+Sunder keeps everything in the platform app-data directory for its identifier `com.sunder.app`:
+
+| What | Path |
+| --- | --- |
+| Downloaded audio | `<app-data>/downloads/{id}.mp3` |
+| Library / playlists / downloads index | `<app-data>/sunder.db` |
+| Settings | `<app-data>/config.json` |
+
+`<app-data>` resolves to:
+- **Linux**: `~/.local/share/com.sunder.app/`
+- **Windows**: `%APPDATA%\com.sunder.app\`
+- **macOS**: `~/Library/Application Support/com.sunder.app/`
+
+Deleting a track from the Offline Library removes both its database entry and the `.mp3` file on disk.
 
 ## Install
 

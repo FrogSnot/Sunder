@@ -40,3 +40,11 @@ export interface EqSettings {
   enabled: boolean;
   gains: number[];
 }
+
+export type DownloadStatus = "queued" | "downloading" | "converting" | "done" | "error";
+
+export interface DownloadEvent {
+  track_id: string;
+  status: DownloadStatus;
+  percent: number;
+}

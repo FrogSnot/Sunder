@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { listPlaylists, addToPlaylist, removeFromPlaylist, playlistsContainingTrack } from "../ipc/bridge";
+  import { listPlaylists, addToPlaylist, removeFromPlaylist, playlistsContainingTrack, downloadTrack, deleteDownload } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
   import { toastState } from "../state/toast.svelte";
+  import { downloads } from "../state/downloads.svelte";
   import type { Playlist, Track } from "../types";
 
   let { onRemoveFromPlaylist = undefined }: { onRemoveFromPlaylist?: (trackId: string) => void } = $props();
@@ -17,6 +18,8 @@
 
   let inQueue = $derived(track !== null && player.queue.some((t) => t.id === track!.id));
   let inPlaylist = $derived(nav.activePlaylistId !== null);
+  let isDownloaded = $derived(track !== null && downloads.isDownloaded(track.id));
+  let isDownloading = $derived(track !== null && downloads.isActive(track.id));
 
   export function open(e: MouseEvent, t: Track) {
     e.preventDefault();
@@ -73,6 +76,22 @@
     close();
   }
 
+  async function handleDownload() {
+    if (!track || isDownloading) return;
+    const t = track;
+    try {
+      if (downloads.isDownloaded(t.id)) {
+        await deleteDownload(t.id);
+      } else {
+        downloads.register(t);
+        await downloadTrack(t.id);
+      }
+    } catch {
+      // download failures surface in the activity panel
+    }
+    close();
+  }
+
   function handleRemoveFromQueue() {
     if (!track) return;
     const idx = player.queue.findIndex((t) => t.id === track!.id);
@@ -117,6 +136,18 @@
       <button class="ctx-item" onclick={expandPlaylists}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add to playlist
+      </button>
+      <button class="ctx-item" class:ctx-muted={isDownloading} onclick={handleDownload} disabled={isDownloading}>
+        {#if isDownloaded}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Remove download
+        {:else if isDownloading}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Downloading...
+        {:else}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        {/if}
       </button>
       {#if inQueue || inPlaylist}
         <div class="ctx-divider"></div>

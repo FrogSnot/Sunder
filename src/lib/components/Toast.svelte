@@ -1,31 +1,33 @@
 <script lang="ts">
   import { toastState } from "../state/toast.svelte";
-  import { fade, fly } from "svelte/transition";
+  import { fly, scale } from "svelte/transition";
+  import { flip } from "svelte/animate";
+  import { quintOut } from "svelte/easing";
 </script>
 
 <div class="toast-container">
   {#each toastState.toasts as toast (toast.id)}
     <div
       class="toast {toast.type}"
-      in:fly={{ y: 20, duration: 300 }}
-      out:fade={{ duration: 200 }}
+      in:fly={{ x: 24, duration: 360, easing: quintOut }}
+      out:scale={{ start: 0.92, duration: 220, easing: quintOut }}
+      animate:flip={{ duration: 260, easing: quintOut }}
     >
-      <div class="icon">
+      <span class="icon" aria-hidden="true">
         {#if toast.type === "error"}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <line x1="12" y1="8" x2="12" y2="12.5"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
         {:else}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
         {/if}
-      </div>
+      </span>
       <div class="message">{toast.message}</div>
-      <button class="close" onclick={() => toastState.remove(toast.id)}>
+      <button class="close" onclick={() => toastState.remove(toast.id)} aria-label="Dismiss">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -37,55 +39,57 @@
 
 <style>
   .toast-container {
-    position: fixed;
-    bottom: 2rem;
-    right: 2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    z-index: 9999;
+    gap: 10px;
+    width: 100%;
     pointer-events: none;
   }
 
   .toast {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    background-color: var(--surface-1);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    gap: 12px;
+    padding: 11px 12px 11px 14px;
+    width: 100%;
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    backdrop-filter: blur(18px) saturate(150%);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
     pointer-events: auto;
-    max-width: 400px;
-    animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .toast.error {
-    border-left: 4px solid var(--accent-color, #ff4d4d);
-  }
-
-  .toast.error .icon {
-    color: var(--accent-color, #ff4d4d);
-  }
-
-  .toast.info .icon {
-    color: #4CAF50;
+    border-color: color-mix(in srgb, var(--error) 45%, transparent);
   }
 
   .icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
     flex-shrink: 0;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+  }
+
+  .toast.error .icon {
+    background: color-mix(in srgb, var(--error) 18%, transparent);
+    color: var(--error);
+  }
+
+  .icon svg {
+    width: 17px;
+    height: 17px;
   }
 
   .message {
-    font-size: 0.875rem;
-    color: var(--text-color);
-    line-height: 1.4;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.35;
     word-break: break-word;
     flex-grow: 1;
   }
@@ -95,21 +99,21 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.25rem;
-    transition: background-color 0.2s, color 0.2s;
+    padding: 5px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    flex-shrink: 0;
+    transition: background 0.16s, color 0.16s;
   }
 
   .close:hover {
-    background-color: var(--surface-2);
-    color: var(--text-color);
+    background: var(--hover-overlay);
+    color: var(--text-primary);
   }
 
   .close svg {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
   }
 </style>

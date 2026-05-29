@@ -4,6 +4,7 @@
   import { player } from "../state/player.svelte";
   import { exploreCache } from "../state/explore.svelte";
   import { toastState } from "../state/toast.svelte";
+  import { downloads } from "../state/downloads.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import WormText from "./WormText.svelte";
   import type { Track } from "../types";
@@ -123,6 +124,11 @@
                 {/if}
                 <span class="art-shade" aria-hidden="true"></span>
                 <span class="play-puck" aria-hidden="true"><span class="play-triangle"></span></span>
+                {#if downloads.isDownloaded(track.id)}
+                  <span class="dl-badge" aria-label="Downloaded" title="Available offline">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </span>
+                {/if}
                 <span class="card-duration">{formatDuration(track.duration_secs)}</span>
               </span>
               <div class="card-info">
@@ -434,6 +440,25 @@
     font-size: 0.8rem;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+  }
+
+  .dl-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--success);
+    color: #0e1a0e;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  }
+
+  .dl-badge svg {
+    width: 13px;
+    height: 13px;
   }
 
   @media (max-width: 700px) {

@@ -8,6 +8,7 @@
   import SleepTimer from "./SleepTimer.svelte";
   import { lyricsState } from "../state/lyrics.svelte";
   import { nav } from "../state/nav.svelte";
+  import DownloadButton from "./DownloadButton.svelte";
 
   let showMoreMenu = $state(false);
   let moreMenuRef = $state<HTMLElement | null>(null);
@@ -160,15 +161,18 @@
 
     <div class="player-body">
       <div class="now-playing">
-        <img
-          class="np-thumb"
-          src={player.currentTrack.thumbnail || ""}
-          alt=""
-        />
+        <div class="np-art">
+          <img
+            class="np-thumb"
+            src={player.currentTrack.thumbnail || ""}
+            alt=""
+          />
+        </div>
         <div class="np-info">
           <span class="np-title">{player.currentTrack.title}</span>
           <span class="np-artist">{player.currentTrack.artist}</span>
         </div>
+        <DownloadButton track={player.currentTrack} size={30} />
       </div>
 
       <div class="controls">
@@ -397,11 +401,18 @@
     transition: box-shadow 300ms ease;
   }
 
+  .np-art {
+    position: relative;
+    flex-shrink: 0;
+    display: block;
+  }
+
   .np-info {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+    flex: 1;
   }
 
   .np-title {
