@@ -233,7 +233,7 @@ Audio is cached temporarily in `/tmp/sunder/` and automatically reused on replay
 - [x] Persistent settings (volume, EQ)
 - [x] Playback speed control
 - [x] Focus View mode
-- [ ] Local track downloads with library management
+- [x] Local track downloads with library management
 
 ## Contributing
 
