@@ -1,11 +1,14 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { searchState } from "../state/search.svelte";
   import { toastState } from "../state/toast.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import DragGhost from "./DragGhost.svelte";
   import WormText from "./WormText.svelte";
   import TrackArt from "./TrackArt.svelte";
+  import { DragReorder } from "../util/dragReorder.svelte";
   import type { Track } from "../types";
 
   let tracks = $derived(searchState.results);
@@ -19,6 +22,7 @@
   }
 
   async function handlePlay(track: Track) {
+    if (reorder.dragging || reorder.justDragged()) return;
     try {
       await playTrack(track);
     } catch (e) {
@@ -34,9 +38,23 @@
   function handleContext(e: MouseEvent, track: Track) {
     ctxMenu.open(e, track);
   }
+
+  const reorder = new DragReorder({
+    getList: () => searchState.results,
+    onReorder: (from, to) => {
+      const moved = searchState.results.splice(from, 1)[0];
+      searchState.results.splice(to, 0, moved);
+      searchState.results = searchState.results;
+    },
+    getScrollContainer: () => document.querySelector(".content") as HTMLElement | null,
+    rowSelector: ".drag-row",
+  });
+
+  onMount(() => () => reorder.destroy());
 </script>
 
 <ContextMenu bind:this={ctxMenu} />
+<DragGhost {reorder} />
 
 {#if tracks.length === 0}
   <div class="empty-state">
@@ -48,11 +66,20 @@
     {#each tracks as track, i (track.id)}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="track-row"
+        class="track-row drag-row"
         class:active={isActive(track)}
+        class:is-dragging={reorder.isDragging(i)}
+        class:drop-before={reorder.dragOver === i && reorder.dropPosition === "before" && reorder.dragFrom !== i}
+        class:drop-after={reorder.dragOver === i && reorder.dropPosition === "after" && reorder.dragFrom !== i}
+        data-idx={i}
+        onpointerdown={(e) => reorder.onPointerDown(e, i)}
+        onpointercancel={() => reorder.onPointerCancel()}
         oncontextmenu={(e) => handleContext(e, track)}
         style="--i: {i}"
       >
+        <span class="drag-handle" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+        </span>
         <TrackArt
           {track}
           onplay={handlePlay}
@@ -111,7 +138,7 @@
   .track-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     padding: 10px 12px 10px 14px;
     border-radius: var(--radius);
     transition: background 200ms ease;
@@ -119,7 +146,13 @@
     width: 100%;
     animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
     animation-delay: calc(min(var(--i, 0), 15) * 30ms);
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
+
+  .track-row:active { cursor: grabbing; }
 
   .track-play {
     display: flex;

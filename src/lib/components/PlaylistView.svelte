@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { flip } from "svelte/animate";
   import {
     listPlaylists,
     createPlaylist,
@@ -21,8 +20,10 @@
   import { toastState } from "../state/toast.svelte";
   import { downloads } from "../state/downloads.svelte";
   import ContextMenu from "./ContextMenu.svelte";
+  import DragGhost from "./DragGhost.svelte";
   import WormText from "./WormText.svelte";
   import TrackArt from "./TrackArt.svelte";
+  import { DragReorder } from "../util/dragReorder.svelte";
   import type { Playlist, Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
@@ -177,6 +178,7 @@
   }
 
   async function handlePlay(track: Track) {
+    if (reorder.dragging || reorder.justDragged()) return;
     try {
       await playTrack(track);
     } catch (e) {
@@ -260,52 +262,26 @@
     if (e.key === "Enter") handleCreate();
   }
 
-  let dragFrom = $state(-1);
-  let dragOverIdx = $state(-1);
-  let dragging = $state(false);
-
-  function onPointerDown(e: PointerEvent, i: number) {
-    e.preventDefault();
-    dragFrom = i;
-    dragOverIdx = i;
-    dragging = true;
-    const handle = e.currentTarget as HTMLElement;
-    handle.setPointerCapture(e.pointerId);
-  }
-
-  function onPointerMove(e: PointerEvent) {
-    if (!dragging) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el) return;
-    const row = el.closest('.track-row') as HTMLElement | null;
-    if (!row || !row.dataset.idx) return;
-    const idx = parseInt(row.dataset.idx, 10);
-    if (!isNaN(idx)) dragOverIdx = idx;
-  }
-
-  async function onPointerUp() {
-    if (!dragging) return;
-    const from = dragFrom;
-    const to = dragOverIdx;
-    dragFrom = -1;
-    dragOverIdx = -1;
-    dragging = false;
-    if (from >= 0 && to >= 0 && from !== to) {
+  const reorder = new DragReorder({
+    getList: () => detailTracks,
+    onReorder: (from, to) => {
       const moved = detailTracks.splice(from, 1)[0];
       detailTracks.splice(to, 0, moved);
       detailTracks = detailTracks;
       if (nav.activePlaylistId !== null) {
-        try {
-          await reorderPlaylistTracks(nav.activePlaylistId, detailTracks.map(t => t.id));
-        } catch (err) {
-          console.error("reorder:", err);
-        }
+        reorderPlaylistTracks(nav.activePlaylistId, detailTracks.map(t => t.id))
+          .catch(err => console.error("reorder:", err));
       }
-    }
-  }
+    },
+    getScrollContainer: () => document.querySelector(".content") as HTMLElement | null,
+    rowSelector: ".drag-row",
+  });
+
+  onMount(() => () => reorder.destroy());
 </script>
 
 <ContextMenu bind:this={ctxMenu} onRemoveFromPlaylist={(id) => { detailTracks = detailTracks.filter((t) => t.id !== id); }} />
+<DragGhost {reorder} />
 
 {#if viewing}
   <div class="detail">
@@ -356,22 +332,18 @@
         {#each detailTracks as track, i (track.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="track-row"
+            class="track-row drag-row"
             class:active={isActive(track)}
-            class:dragging={dragging && dragFrom === i}
-            class:drag-over={dragging && dragOverIdx === i && dragFrom !== i}
+            class:is-dragging={reorder.isDragging(i)}
+            class:drop-before={reorder.dragOver === i && reorder.dropPosition === "before" && reorder.dragFrom !== i}
+            class:drop-after={reorder.dragOver === i && reorder.dropPosition === "after" && reorder.dragFrom !== i}
             data-idx={i}
-            animate:flip={{ duration: 250 }}
+            onpointerdown={(e) => reorder.onPointerDown(e, i)}
+            onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => ctxMenu.open(e, track)}
           >
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <span
-              class="drag-handle"
-              onpointerdown={(e) => onPointerDown(e, i)}
-              onpointermove={onPointerMove}
-              onpointerup={onPointerUp}
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>
+            <span class="drag-handle" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
             <span class="track-num">{i + 1}</span>
             <TrackArt {track} onplay={handlePlay} active={isActive(track)} playing={player.isPlaying} size={44} />
@@ -382,7 +354,7 @@
               </div>
               <span class="track-duration">{formatDuration(track.duration_secs)}</span>
             </button>
-            <button class="remove-btn" onclick={() => handleRemove(track.id)} aria-label="Remove">
+            <button class="remove-btn drag-skip" onclick={() => handleRemove(track.id)} aria-label="Remove">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -473,16 +445,16 @@
                 <span class="playlist-count">{p.track_count} track{p.track_count === 1 ? "" : "s"}</span>
               </div>
             </button>
-            <button class="row-action-btn play" onclick={() => handleQuickPlay(p)} aria-label="Play all tracks">
+            <button class="row-action-btn play drag-skip" onclick={() => handleQuickPlay(p)} aria-label="Play all tracks">
               <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             </button>
-            <button class="row-action-btn rename" onclick={() => startRename(p)} aria-label="Rename playlist">
+            <button class="row-action-btn rename drag-skip" onclick={() => startRename(p)} aria-label="Rename playlist">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
             </button>
-            <button class="row-action-btn delete" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
+            <button class="row-action-btn delete drag-skip" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -795,33 +767,18 @@
     opacity: 1;
     background: var(--bg-base);
     border-radius: var(--radius);
-    transition: background 200ms ease, opacity 150ms ease;
-  }
-
-  .track-row.dragging { opacity: 0.3; }
-  .track-row.drag-over { border-top: 2px solid var(--accent); margin-top: -2px; }
-
-  .drag-handle {
-    width: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
+    transition: background 200ms ease;
     cursor: grab;
-    flex-shrink: 0;
-    opacity: 0.4;
-    transition: opacity var(--transition), color var(--transition);
-    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
-  .drag-handle:active { cursor: grabbing; }
-  .track-row:hover .drag-handle { opacity: 1; }
-  .drag-handle svg { width: 12px; height: 12px; }
+  .track-row:active { cursor: grabbing; }
 
   .track-row.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);
-    border-radius: var(--radius);
     position: relative;
   }
 
@@ -895,12 +852,13 @@
     justify-content: center;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    transition: color 200ms ease, transform 150ms ease;
+    transition: color 200ms ease, transform 150ms ease, background 150ms ease;
     flex-shrink: 0;
   }
 
   .remove-btn:hover {
     color: var(--error);
+    background: var(--bg-elevated);
     transform: scale(1.15);
   }
   .remove-btn svg { width: 14px; height: 14px; }

@@ -4,20 +4,17 @@
   import { player } from "../state/player.svelte";
   import { toastState } from "../state/toast.svelte";
   import { fly } from "svelte/transition";
-  import { flip } from "svelte/animate";
   import ContextMenu from "./ContextMenu.svelte";
+  import DragGhost from "./DragGhost.svelte";
   import WormText from "./WormText.svelte";
   import TrackArt from "./TrackArt.svelte";
+  import { DragReorder } from "../util/dragReorder.svelte";
   import type { Track } from "../types";
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
 
   const ROW_HEIGHT = 56;
   const OVERSCAN = 10;
-  const DRAG_THRESHOLD = 5;
-  const LONG_PRESS_MS = 220;
-  const AUTO_SCROLL_EDGE = 56;
-  const AUTO_SCROLL_SPEED = 10;
 
   let queue = $derived(player.queue);
   let currentIndex = $derived(player.queueIndex);
@@ -26,24 +23,13 @@
   let upNext = $derived(queue.slice(currentIndex + 1));
   let played = $derived(currentIndex > 0 ? queue.slice(0, currentIndex) : []);
 
-  // Drag state
-  let dragFrom = $state(-1);
-  let dragOver = $state(-1);
-  let dropPosition = $state<"before" | "after">("before");
-  let dragging = $state(false);
-  let dragX = $state(0);
-  let dragY = $state(0);
-  let justDragged = $state(false);
+  const reorder = new DragReorder({
+    getList: () => queue,
+    onReorder: (from, to) => player.moveInQueue(from, to),
+    getScrollContainer: () => document.querySelector(".content") as HTMLElement | null,
+    rowSelector: ".drag-row",
+  });
 
-  // Non-reactive press tracking
-  let pressIndex = -1;
-  let pressStartX = 0;
-  let pressStartY = 0;
-  let pressActive = false;
-  let pressTimer: ReturnType<typeof setTimeout> | null = null;
-  let autoScrollRaf: number | null = null;
-
-  // Virtual scroll state
   let scrollContainer = $state<HTMLElement | null>(null);
   let scrollTop = $state(0);
   let viewportHeight = $state(600);
@@ -55,16 +41,16 @@
   }
 
   onMount(() => {
-    const el = document.querySelector('.content') as HTMLElement | null;
+    const el = document.querySelector(".content") as HTMLElement | null;
     if (el) {
       scrollContainer = el;
       viewportHeight = el.clientHeight;
       scrollTop = el.scrollTop;
-      el.addEventListener('scroll', onScroll, { passive: true });
+      el.addEventListener("scroll", onScroll, { passive: true });
     }
     return () => {
-      if (el) el.removeEventListener('scroll', onScroll);
-      cleanupDrag();
+      el?.removeEventListener("scroll", onScroll);
+      reorder.destroy();
     };
   });
 
@@ -106,10 +92,7 @@
   }
 
   async function handlePlay(index: number) {
-    if (dragging || justDragged) {
-      justDragged = false;
-      return;
-    }
+    if (reorder.dragging || reorder.justDragged()) return;
     const track = player.playFromQueue(index);
     if (track) {
       try { await playTrack(track); } catch (e) { console.error("play:", e); }
@@ -170,166 +153,10 @@
   function handleContext(e: MouseEvent, track: Track) {
     ctxMenu.open(e, track);
   }
-
-  // Drag and drop
-
-  function onRowPointerDown(e: PointerEvent, index: number) {
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    const target = e.target as HTMLElement;
-    if (target.closest('.remove-btn')) return;
-    if (target.closest('button') && !target.closest('.drag-handle')) {
-      // Allow button clicks (play) without starting drag
-      return;
-    }
-    pressIndex = index;
-    pressStartX = e.clientX;
-    pressStartY = e.clientY;
-    pressActive = true;
-    if (pressTimer) clearTimeout(pressTimer);
-    pressTimer = setTimeout(() => {
-      if (pressActive && pressIndex === index) {
-        startDrag(e, index);
-      }
-    }, LONG_PRESS_MS);
-  }
-
-  function startDrag(e: PointerEvent, index: number) {
-    if (dragging) return;
-    dragging = true;
-    dragFrom = index;
-    dragOver = index;
-    dropPosition = "before";
-    dragX = e.clientX;
-    dragY = e.clientY;
-    document.body.style.touchAction = "none";
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "grabbing";
-    document.addEventListener("pointermove", onDocPointerMove);
-    document.addEventListener("pointerup", onDocPointerUp);
-    document.addEventListener("pointercancel", onDocPointerUp);
-    document.addEventListener("keydown", onDocKeyDown);
-  }
-
-  function cleanupDrag() {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
-    if (autoScrollRaf !== null) {
-      cancelAnimationFrame(autoScrollRaf);
-      autoScrollRaf = null;
-    }
-    document.removeEventListener("pointermove", onDocPointerMove);
-    document.removeEventListener("pointerup", onDocPointerUp);
-    document.removeEventListener("pointercancel", onDocPointerUp);
-    document.removeEventListener("keydown", onDocKeyDown);
-    document.body.style.touchAction = "";
-    document.body.style.userSelect = "";
-    document.body.style.cursor = "";
-    pressActive = false;
-    pressIndex = -1;
-  }
-
-  function onDocPointerMove(e: PointerEvent) {
-    if (pressActive && !dragging) {
-      const dx = e.clientX - pressStartX;
-      const dy = e.clientY - pressStartY;
-      if (Math.hypot(dx, dy) > DRAG_THRESHOLD) {
-        if (pressTimer) {
-          clearTimeout(pressTimer);
-          pressTimer = null;
-        }
-        startDrag(e, pressIndex);
-      }
-      return;
-    }
-    if (!dragging) return;
-    dragX = e.clientX;
-    dragY = e.clientY;
-    updateHover(e.clientX, e.clientY);
-    scheduleAutoScroll();
-  }
-
-  function updateHover(x: number, y: number) {
-    const els = document.elementsFromPoint(x, y);
-    let row: HTMLElement | null = null;
-    for (const el of els) {
-      const candidate = (el as HTMLElement).closest?.('.track-row') as HTMLElement | null;
-      if (candidate && candidate.dataset.idx) {
-        row = candidate;
-        break;
-      }
-    }
-    if (!row || !row.dataset.idx) return;
-    const idx = parseInt(row.dataset.idx, 10);
-    if (isNaN(idx) || idx === dragFrom) {
-      if (idx !== dragFrom) return;
-      return;
-    }
-    dragOver = idx;
-    const rect = row.getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    dropPosition = y < midY ? "before" : "after";
-  }
-
-  function scheduleAutoScroll() {
-    if (autoScrollRaf !== null) return;
-    autoScrollRaf = requestAnimationFrame(() => {
-      autoScrollRaf = null;
-      if (!dragging || !scrollContainer) return;
-      const rect = scrollContainer.getBoundingClientRect();
-      const mouseY = dragY;
-      if (mouseY < rect.top + AUTO_SCROLL_EDGE) {
-        const intensity = 1 - Math.min(1, (mouseY - rect.top) / AUTO_SCROLL_EDGE);
-        scrollContainer.scrollTop -= AUTO_SCROLL_SPEED * intensity;
-      } else if (mouseY > rect.bottom - AUTO_SCROLL_EDGE) {
-        const intensity = 1 - Math.min(1, (rect.bottom - mouseY) / AUTO_SCROLL_EDGE);
-        scrollContainer.scrollTop += AUTO_SCROLL_SPEED * intensity;
-      }
-    });
-  }
-
-  function onDocPointerUp() {
-    const wasDragging = dragging;
-    if (wasDragging && dragFrom >= 0 && dragOver >= 0 && dragFrom !== dragOver) {
-      let target = dropPosition === "after" ? dragOver + 1 : dragOver;
-      if (dragFrom < target) target -= 1;
-      if (target !== dragFrom && target >= 0 && target < queue.length) {
-        player.moveInQueue(dragFrom, target);
-        justDragged = true;
-        setTimeout(() => { justDragged = false; }, 50);
-      } else if (target === dragFrom) {
-        justDragged = true;
-        setTimeout(() => { justDragged = false; }, 50);
-      }
-    } else if (wasDragging) {
-      justDragged = true;
-      setTimeout(() => { justDragged = false; }, 50);
-    }
-    dragging = false;
-    dragFrom = -1;
-    dragOver = -1;
-    cleanupDrag();
-  }
-
-  function onDocKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      dragging = false;
-      dragFrom = -1;
-      dragOver = -1;
-      cleanupDrag();
-    }
-  }
-
-  function dropClass(idx: number): string {
-    if (!dragging || dragFrom === idx || dragOver !== idx) return "";
-    return dropPosition === "before" ? "drop-before" : "drop-after";
-  }
-
-  let ghostTrack = $derived(dragging && dragFrom >= 0 ? queue[dragFrom] : null);
 </script>
 
 <ContextMenu bind:this={ctxMenu} />
+<DragGhost {reorder} />
 
 <div class="queue-view">
   <div class="queue-header">
@@ -423,11 +250,13 @@
           {@const queueIdx = currentIndex + 1 + ri}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="track-row {dropClass(queueIdx)}"
-            class:dragging-row={dragging && dragFrom === queueIdx}
+            class="track-row drag-row"
+            class:is-dragging={reorder.isDragging(queueIdx)}
+            class:drop-before={reorder.dragOver === queueIdx && reorder.dropPosition === "before" && !reorder.isDragging(queueIdx)}
+            class:drop-after={reorder.dragOver === queueIdx && reorder.dropPosition === "after" && !reorder.isDragging(queueIdx)}
             data-idx={queueIdx}
-            animate:flip={{ duration: 260 }}
-            onpointerdown={(e) => onRowPointerDown(e, queueIdx)}
+            onpointerdown={(e) => reorder.onPointerDown(e, queueIdx)}
+            onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
           >
             <span class="drag-handle" aria-hidden="true">
@@ -446,7 +275,7 @@
               </div>
               <span class="track-duration">{formatDuration(track.duration_secs)}</span>
             </button>
-            <button class="remove-btn" onclick={() => handleRemove(queueIdx)} aria-label="Remove from queue">
+            <button class="remove-btn drag-skip" onclick={() => handleRemove(queueIdx)} aria-label="Remove from queue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -469,11 +298,13 @@
           {@const ri = playedSlice.start + i}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="track-row played-row {dropClass(ri)}"
-            class:dragging-row={dragging && dragFrom === ri}
+            class="track-row drag-row played-row"
+            class:is-dragging={reorder.isDragging(ri)}
+            class:drop-before={reorder.dragOver === ri && reorder.dropPosition === "before" && !reorder.isDragging(ri)}
+            class:drop-after={reorder.dragOver === ri && reorder.dropPosition === "after" && !reorder.isDragging(ri)}
             data-idx={ri}
-            animate:flip={{ duration: 260 }}
-            onpointerdown={(e) => onRowPointerDown(e, ri)}
+            onpointerdown={(e) => reorder.onPointerDown(e, ri)}
+            onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
           >
             <span class="drag-handle" aria-hidden="true">
@@ -492,7 +323,7 @@
               </div>
               <span class="track-duration">{formatDuration(track.duration_secs)}</span>
             </button>
-            <button class="remove-btn" onclick={() => handleRemove(ri)} aria-label="Remove from queue">
+            <button class="remove-btn drag-skip" onclick={() => handleRemove(ri)} aria-label="Remove from queue">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -506,22 +337,6 @@
     {/if}
   {/if}
 </div>
-
-{#if ghostTrack}
-  <div
-    class="drag-ghost"
-    style="transform: translate3d({dragX + 14}px, {dragY + 14}px, 0)"
-    aria-hidden="true"
-  >
-    <div class="ghost-handle">
-      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-    </div>
-    <div class="ghost-info">
-      <div class="ghost-title">{ghostTrack.title}</div>
-      <div class="ghost-artist">{ghostTrack.artist}</div>
-    </div>
-  </div>
-{/if}
 
 <style>
   .queue-view {
@@ -650,7 +465,6 @@
   }
 
   .track-row {
-    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -658,59 +472,17 @@
     background: var(--bg-base);
     border-radius: var(--radius);
     cursor: grab;
-    transition: background 200ms ease, opacity 150ms ease, transform 200ms ease;
+    transition: background 200ms ease;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
   }
 
   .track-row:hover {
-    transform: translateY(-1px);
+    transform: none;
   }
 
   .track-row:active { cursor: grabbing; }
-
-  .track-row.dragging-row {
-    opacity: 0.35;
-    transform: scale(0.98);
-  }
-
-  .track-row.drop-before::before,
-  .track-row.drop-after::after {
-    content: "";
-    position: absolute;
-    left: 4px;
-    right: 4px;
-    height: 2px;
-    background: var(--accent);
-    border-radius: 2px;
-    box-shadow: 0 0 10px var(--accent), 0 0 2px var(--accent);
-    pointer-events: none;
-    animation: dropPulse 1.2s ease-in-out infinite;
-  }
-
-  .track-row.drop-before::before { top: -2px; }
-  .track-row.drop-after::after { bottom: -2px; }
-
-  @keyframes dropPulse {
-    0%, 100% { opacity: 0.85; }
-    50% { opacity: 1; }
-  }
-
-  .drag-handle {
-    width: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    opacity: 0.5;
-    transition: opacity var(--transition), color var(--transition);
-  }
-
-  .track-row:hover .drag-handle { opacity: 1; color: var(--text-secondary); }
-  .track-row.dragging-row .drag-handle { opacity: 1; color: var(--accent); }
-  .drag-handle svg { width: 12px; height: 12px; }
 
   .now-playing-card {
     background: var(--bg-elevated);
@@ -814,61 +586,4 @@
     transform: scale(1.15);
   }
   .remove-btn svg { width: 14px; height: 14px; }
-
-  .drag-ghost {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 9999;
-    pointer-events: none;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    min-width: 240px;
-    max-width: 360px;
-    background: var(--bg-overlay);
-    border: 1px solid var(--accent-dim);
-    border-radius: var(--radius);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--accent-dim);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    animation: ghostEnter 120ms ease-out;
-  }
-
-  @keyframes ghostEnter {
-    from { opacity: 0; transform: translate3d(var(--gx, 0), var(--gy, 0), 0) scale(0.95); }
-  }
-
-  .ghost-handle {
-    color: var(--accent);
-    display: flex;
-    align-items: center;
-  }
-  .ghost-handle svg { width: 14px; height: 14px; }
-
-  .ghost-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .ghost-title {
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .ghost-artist {
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 </style>

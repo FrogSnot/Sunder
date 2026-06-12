@@ -113,3 +113,44 @@ input {
   from { opacity: 0; transform: translateX(-50%) translateY(16px) scale(0.95); }
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
+
+.drag-handle {
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity var(--transition), color var(--transition);
+  touch-action: none;
+}
+
+.drag-handle svg { width: 12px; height: 12px; }
+.drag-row:hover .drag-handle { opacity: 1; color: var(--text-secondary); }
+.drag-row.is-dragging .drag-handle { opacity: 1; color: var(--accent); }
+.drag-row.is-dragging { opacity: 0.35; transform: scale(0.98); cursor: grabbing; }
+
+.drag-row.drop-before::before,
+.drag-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 10px var(--accent), 0 0 2px var(--accent);
+  pointer-events: none;
+  animation: dropPulse 1.2s ease-in-out infinite;
+}
+
+.drag-row { position: relative; }
+
+.drag-row.drop-before::before { top: -2px; }
+.drag-row.drop-after::after { bottom: -2px; }
+
+@keyframes dropPulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
