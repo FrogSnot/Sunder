@@ -30,11 +30,27 @@
 
   let playlists = $state<Playlist[]>([]);
   let detailTracks = $state<Track[]>([]);
+  let trackFilter = $state("");
   let newName = $state("");
   let creating = $state(false);
   let failedThumbnails = $state(new Set<number>());
 
   let viewing = $derived(nav.activeTab === "playlist-detail" && nav.activePlaylistId !== null);
+
+  let filteredTracks = $derived.by(() => {
+    const q = trackFilter.trim().toLowerCase();
+    const indexed = detailTracks.map((track, originalIndex) => ({ track, originalIndex }));
+    if (!q) return indexed;
+    return indexed.filter(
+      ({ track }) =>
+        track.title.toLowerCase().includes(q) ||
+        track.artist.toLowerCase().includes(q),
+    );
+  });
+
+  function handleFilterKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") trackFilter = "";
+  }
 
   onMount(() => { refreshPlaylists(); });
 
@@ -328,24 +344,51 @@
     {#if detailTracks.length === 0}
       <p class="empty-sub">No tracks yet. Add tracks from search results.</p>
     {:else}
+      <div class="search-row">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          type="text"
+          class="filter-input"
+          placeholder="Filter tracks..."
+          bind:value={trackFilter}
+          onkeydown={handleFilterKeydown}
+        />
+        {#if trackFilter}
+          <button class="filter-clear" onclick={() => trackFilter = ""} aria-label="Clear filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        {/if}
+        {#if trackFilter.trim()}
+          <span class="filter-count">{filteredTracks.length} of {detailTracks.length}</span>
+        {/if}
+      </div>
+      {#if filteredTracks.length === 0}
+        <p class="empty-sub">No tracks match "{trackFilter}".</p>
+      {:else}
       <div class="track-list">
-        {#each detailTracks as track, i (track.id)}
+        {#each filteredTracks as { track, originalIndex } (track.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="track-row drag-row"
             class:active={isActive(track)}
-            class:is-dragging={reorder.isDragging(i)}
-            class:drop-before={reorder.dragOver === i && reorder.dropPosition === "before" && reorder.dragFrom !== i}
-            class:drop-after={reorder.dragOver === i && reorder.dropPosition === "after" && reorder.dragFrom !== i}
-            data-idx={i}
-            onpointerdown={(e) => reorder.onPointerDown(e, i)}
+            class:is-dragging={reorder.isDragging(originalIndex)}
+            class:drop-before={reorder.dragOver === originalIndex && reorder.dropPosition === "before" && reorder.dragFrom !== originalIndex}
+            class:drop-after={reorder.dragOver === originalIndex && reorder.dropPosition === "after" && reorder.dragFrom !== originalIndex}
+            data-idx={originalIndex}
+            onpointerdown={(e) => reorder.onPointerDown(e, originalIndex)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => ctxMenu.open(e, track)}
           >
             <span class="drag-handle" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
-            <span class="track-num">{i + 1}</span>
+            <span class="track-num">{originalIndex + 1}</span>
             <TrackArt {track} onplay={handlePlay} active={isActive(track)} playing={player.isPlaying} size={44} />
             <button class="track-play" onclick={() => handlePlay(track)}>
               <div class="track-info">
@@ -363,6 +406,7 @@
           </div>
         {/each}
       </div>
+      {/if}
     {/if}
   </div>
 {:else}
@@ -862,4 +906,76 @@
     transform: scale(1.15);
   }
   .remove-btn svg { width: 14px; height: 14px; }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 14px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius);
+    outline: 2px solid transparent;
+    transition: outline 200ms ease, box-shadow 300ms ease;
+  }
+
+  .search-row:focus-within {
+    outline-color: var(--accent-dim);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.12);
+  }
+
+  .search-row .search-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: color 200ms ease;
+  }
+
+  .search-row:focus-within .search-icon {
+    color: var(--accent);
+  }
+
+  .filter-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+  }
+
+  .filter-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .filter-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .filter-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    transition: color 200ms ease, background 200ms ease, transform 150ms ease;
+  }
+
+  .filter-clear:hover {
+    color: var(--text-primary);
+    background: var(--bg-overlay);
+    transform: scale(1.1);
+  }
+
+  .filter-clear svg {
+    width: 12px;
+    height: 12px;
+  }
 </style>

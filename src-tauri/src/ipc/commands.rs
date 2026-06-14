@@ -501,7 +501,7 @@ pub async fn get_explore(
     };
 
     dedupe_queries(&mut queries);
-    queries.sort_by(|a, b| b.score.cmp(&a.score));
+    queries.sort_by_key(|b| std::cmp::Reverse(b.score));
     queries.truncate(MAX_EXPLORE_QUERIES);
 
     let results: Vec<Vec<Track>> = futures::future::join_all(
