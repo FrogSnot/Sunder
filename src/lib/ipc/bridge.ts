@@ -379,23 +379,47 @@ export async function fetchLyrics(trackId: string, artist: string, title: string
   lyricsState.reset();
   lyricsState.trackId = trackId;
   lyricsState.loading = true;
+  lyricsState.searchStage = "cache";
 
   try {
+    // 0. SQLite cache check (instant, no network)
+    try {
+      const cached = await getLyricsCache(trackId);
+      if (cached) {
+        lyricsState.loading = false;
+        lyricsState.content = cached.content;
+        lyricsState.source = cached.source;
+        if (cached.synced_lyrics) {
+          lyricsState.syncedLines = parseLrc(cached.synced_lyrics);
+          lyricsState.synced = true;
+        }
+        lyricsState.searchStage = "idle";
+        return;
+      }
+    } catch { /* cache miss / DB error — fall through */ }
+
     const { cleanArtist, cleanTitle } = cleanForSearch(artist, title);
 
+    lyricsState.searchStage = "lrclib";
     if (await tryLrclib(cleanArtist, cleanTitle, durationSecs)) return;
     if (cleanTitle !== title && await tryLrclib(artist, title, durationSecs)) return;
     if (durationSecs && await tryLrclib(cleanArtist, cleanTitle)) return;
+
+    lyricsState.searchStage = "lrclib-search";
     if (await tryLrclibQuery(`${cleanArtist} ${cleanTitle}`)) return;
     if (await tryLrclibQuery(cleanTitle)) return;
+
+    lyricsState.searchStage = "lyrics-ovh";
     if (await tryLyricsOvh(cleanArtist, cleanTitle)) return;
     if (cleanTitle !== title && await tryLyricsOvh(artist, title)) return;
 
+    lyricsState.searchStage = "subtitles";
     try {
       const subs = await invoke<string>("get_subtitles", { videoId: trackId, lang: "en" });
       if (subs && subs.trim().length > 20) {
         lyricsState.content = subs;
         lyricsState.source = "YouTube";
+        saveLyricsCache(trackId, subs, "", "YouTube").catch(() => {});
         return;
       }
     } catch { /* no subtitles */ }
@@ -405,7 +429,27 @@ export async function fetchLyrics(trackId: string, artist: string, title: string
     lyricsState.error = "Failed to fetch lyrics.";
   } finally {
     lyricsState.loading = false;
+    lyricsState.searchStage = "idle";
   }
+}
+
+export interface CachedLyrics {
+  content: string;
+  synced_lyrics: string;
+  source: string;
+}
+
+export async function getLyricsCache(trackId: string): Promise<CachedLyrics | null> {
+  return invoke<CachedLyrics | null>("get_lyrics_cache", { trackId });
+}
+
+export async function saveLyricsCache(
+  trackId: string,
+  content: string,
+  syncedLyrics: string,
+  source: string
+): Promise<void> {
+  await invoke("save_lyrics_cache", { trackId, content, syncedLyrics, source });
 }
 
 async function tryLrclib(artist: string, title: string, duration?: number): Promise<boolean> {
@@ -415,16 +459,19 @@ async function tryLrclib(artist: string, title: string, duration?: number): Prom
     const res = await fetch(url);
     if (!res.ok) return false;
     const data = await res.json();
+    const id = lyricsState.trackId;
     if (data.syncedLyrics) {
       lyricsState.syncedLines = parseLrc(data.syncedLyrics);
       lyricsState.synced = true;
       lyricsState.content = data.plainLyrics || "";
       lyricsState.source = "LRCLIB";
+      saveLyricsCache(id, lyricsState.content, data.syncedLyrics, "LRCLIB").catch(() => {});
       return true;
     } else if (data.plainLyrics) {
       lyricsState.content = data.plainLyrics;
       lyricsState.synced = false;
       lyricsState.source = "LRCLIB";
+      saveLyricsCache(id, lyricsState.content, "", "LRCLIB").catch(() => {});
       return true;
     }
   } catch { /* ignore */ }
@@ -438,15 +485,18 @@ async function tryLrclibQuery(query: string): Promise<boolean> {
     const data = await res.json();
     if (data.length > 0) {
       const first = data[0];
+      const id = lyricsState.trackId;
       if (first.syncedLyrics) {
         lyricsState.syncedLines = parseLrc(first.syncedLyrics);
         lyricsState.synced = true;
         lyricsState.content = first.plainLyrics || "";
         lyricsState.source = "LRCLIB (Search)";
+        saveLyricsCache(id, lyricsState.content, first.syncedLyrics, "LRCLIB (Search)").catch(() => {});
         return true;
       } else if (first.plainLyrics) {
         lyricsState.content = first.plainLyrics;
         lyricsState.source = "LRCLIB (Search)";
+        saveLyricsCache(id, lyricsState.content, "", "LRCLIB (Search)").catch(() => {});
         return true;
       }
     }
@@ -462,6 +512,7 @@ async function tryLyricsOvh(artist: string, title: string): Promise<boolean> {
     if (data.lyrics) {
       lyricsState.content = data.lyrics;
       lyricsState.source = "Lyrics.ovh";
+      saveLyricsCache(lyricsState.trackId, data.lyrics, "", "Lyrics.ovh").catch(() => {});
       return true;
     }
   } catch { /* ignore */ }

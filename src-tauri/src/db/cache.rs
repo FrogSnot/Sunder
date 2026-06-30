@@ -6,6 +6,13 @@ use rusqlite::{params, Connection};
 use crate::error::AppError;
 use crate::models::{Playlist, Track};
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct CachedLyrics {
+    pub content: String,
+    pub synced_lyrics: String,
+    pub source: String,
+}
+
 pub struct SearchCache {
     conn: Mutex<Connection>,
 }
@@ -71,7 +78,16 @@ impl SearchCache {
                  played   TEXT NOT NULL DEFAULT (datetime('now'))
              );
              CREATE INDEX IF NOT EXISTS idx_history_track ON listen_history(track_id);
-             CREATE INDEX IF NOT EXISTS idx_history_played ON listen_history(played DESC);",
+             CREATE INDEX IF NOT EXISTS idx_history_played ON listen_history(played DESC);
+
+             CREATE TABLE IF NOT EXISTS lyrics_cache (
+                 track_id      TEXT PRIMARY KEY,
+                 content       TEXT NOT NULL DEFAULT '',
+                 synced_lyrics TEXT NOT NULL DEFAULT '',
+                 source        TEXT NOT NULL DEFAULT '',
+                 fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_lyrics_fetched ON lyrics_cache(fetched_at);",
         )?;
 
         // Migration: downloads table. A legacy table lacking the expected
@@ -126,6 +142,50 @@ impl SearchCache {
         for t in tracks {
             stmt.execute(params![t.id, t.title, t.artist, t.thumbnail, t.duration_secs])?;
         }
+        Ok(())
+    }
+
+    pub fn get_lyrics(&self, track_id: &str) -> Result<Option<CachedLyrics>, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT content, synced_lyrics, source FROM lyrics_cache WHERE track_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![track_id])?;
+        if let Some(row) = rows.next()? {
+            let content: String = row.get(0)?;
+            let synced_lyrics: String = row.get(1)?;
+            let source: String = row.get(2)?;
+            if content.is_empty() && synced_lyrics.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(CachedLyrics {
+                content,
+                synced_lyrics,
+                source,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn upsert_lyrics(
+        &self,
+        track_id: &str,
+        content: &str,
+        synced_lyrics: &str,
+        source: &str,
+    ) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO lyrics_cache (track_id, content, synced_lyrics, source, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, datetime('now'))
+             ON CONFLICT(track_id) DO UPDATE SET
+                 content = excluded.content,
+                 synced_lyrics = excluded.synced_lyrics,
+                 source = excluded.source,
+                 fetched_at = datetime('now')",
+            params![track_id, content, synced_lyrics, source],
+        )?;
         Ok(())
     }
 

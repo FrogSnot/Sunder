@@ -1,3 +1,3 @@
 pub mod cache;
 
-pub use cache::SearchCache;
+pub use cache::{CachedLyrics, SearchCache};

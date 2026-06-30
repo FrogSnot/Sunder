@@ -1,10 +1,14 @@
 <script lang="ts">
-  import { lyricsState } from "../state/lyrics.svelte";
+  import { lyricsState, type LyricsSearchStage } from "../state/lyrics.svelte";
   import { player } from "../state/player.svelte";
+  import { nav } from "../state/nav.svelte";
   import { fetchLyrics } from "../ipc/bridge";
   import WormText from "./WormText.svelte";
 
   let lyricsContainer = $state<HTMLDivElement | undefined>();
+
+  const stageOrder: LyricsSearchStage[] = ["cache", "lrclib", "lrclib-search", "lyrics-ovh", "subtitles"];
+  let currentStageIdx = $derived(stageOrder.indexOf(lyricsState.searchStage));
 
   // When the panel becomes visible and we have a track, fetch lyrics if not already loaded
   $effect(() => {
@@ -33,57 +37,94 @@
   });
 </script>
 
-{#if lyricsState.visible}
-  <aside class="lyrics-panel">
-    <div class="lyrics-header">
-      <span class="lyrics-title">Lyrics</span>
-      {#if lyricsState.source}
-        <span class="lyrics-source">{lyricsState.source}</span>
-      {/if}
-      <button class="close-btn" onclick={() => lyricsState.visible = false} aria-label="Close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
-    </div>
+<aside
+  class="lyrics-panel"
+  class:open={lyricsState.visible}
+  class:focus-hidden={nav.focusMode}
+>
+  <div class="lyrics-header">
+    <span class="lyrics-title">Lyrics</span>
+    {#if lyricsState.source}
+      <span class="lyrics-source">{lyricsState.source}</span>
+    {/if}
+    <button class="close-btn" onclick={() => lyricsState.visible = false} aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </div>
 
-    <div class="lyrics-body" bind:this={lyricsContainer}>
-      {#if lyricsState.loading}
-        <p class="lyrics-status"><WormText text="Searching for lyrics" /></p>
-      {:else if lyricsState.error}
-        <p class="lyrics-status">{lyricsState.error}</p>
-      {:else if lyricsState.synced}
-        {#each lyricsState.syncedLines as line, i}
-          <p class="lyric-line" class:active={i === activeLineIdx}>{line.text || "\u00A0"}</p>
+  {#if lyricsState.loading}
+    <div class="lyrics-progress" role="status" aria-live="polite">
+      <div class="progress-bar">
+        {#each stageOrder as stage, i}
+          <div
+            class="segment"
+            class:filled={i <= currentStageIdx}
+            class:current={i === currentStageIdx}
+            data-stage={stage}
+          ></div>
         {/each}
-      {:else if lyricsState.content}
-        <pre class="plain-lyrics">{lyricsState.content}</pre>
-      {:else}
-        <p class="lyrics-status">No lyrics available</p>
-      {/if}
+      </div>
+      <span class="stage-label">
+        {#if lyricsState.searchStage === "cache"}
+          Checking cache…
+        {:else if lyricsState.searchStage === "lrclib" || lyricsState.searchStage === "lrclib-search"}
+          Searching LRCLIB…
+        {:else if lyricsState.searchStage === "lyrics-ovh"}
+          Trying Lyrics.ovh…
+        {:else if lyricsState.searchStage === "subtitles"}
+          Checking YouTube subtitles…
+        {:else}
+          Searching…
+        {/if}
+      </span>
     </div>
-  </aside>
-{/if}
+  {/if}
+
+  <div class="lyrics-body" bind:this={lyricsContainer}>
+    {#if lyricsState.loading}
+      <p class="lyrics-status"><WormText text="Searching for lyrics" /></p>
+    {:else if lyricsState.error}
+      <p class="lyrics-status">{lyricsState.error}</p>
+    {:else if lyricsState.synced}
+      {#each lyricsState.syncedLines as line, i}
+        <p class="lyric-line" class:active={i === activeLineIdx}>{line.text || "\u00A0"}</p>
+      {/each}
+    {:else if lyricsState.content}
+      <pre class="plain-lyrics">{lyricsState.content}</pre>
+    {:else}
+      <p class="lyrics-status">No lyrics available</p>
+    {/if}
+  </div>
+</aside>
 
 <style>
   .lyrics-panel {
-    position: fixed;
-    right: 0;
-    top: 0;
-    bottom: var(--player-height);
-    width: 340px;
+    width: 0;
+    min-width: 0;
+    height: calc(100vh - var(--player-height));
+    overflow: hidden;
     background: var(--bg-surface);
     border-left: 1px solid var(--bg-overlay);
     display: flex;
     flex-direction: column;
-    z-index: 50;
-    animation: slideIn 200ms ease;
-    transition: bottom 300ms var(--ease-out-expo);
+    transition: width 280ms var(--ease-out-expo);
+    will-change: width;
+    contain: layout style;
   }
 
-  @keyframes slideIn {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+  .lyrics-panel.open {
+    width: 340px;
+    min-width: 340px;
+  }
+
+  .lyrics-panel.focus-hidden {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lyrics-panel { transition: none; }
   }
 
   .lyrics-header {
@@ -128,6 +169,52 @@
   .close-btn svg {
     width: 16px;
     height: 16px;
+  }
+
+  .lyrics-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--bg-overlay);
+  }
+
+  .progress-bar {
+    display: flex;
+    gap: 4px;
+    height: 4px;
+  }
+
+  .segment {
+    flex: 1;
+    background: var(--bg-overlay);
+    border-radius: 2px;
+    transition: background 200ms ease;
+  }
+
+  .segment.filled {
+    background: var(--accent);
+  }
+
+  .segment.current {
+    background: var(--accent);
+    opacity: 0.6;
+    animation: lyric-stage-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes lyric-stage-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .segment.current { animation: none; opacity: 1; }
+  }
+
+  .stage-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: center;
   }
 
   .lyrics-body {

@@ -3,6 +3,14 @@ export interface SyncedLine {
   text: string;
 }
 
+export type LyricsSearchStage =
+  | "idle"
+  | "cache"
+  | "lrclib"
+  | "lrclib-search"
+  | "lyrics-ovh"
+  | "subtitles";
+
 class LyricsState {
   trackId = $state("");
   loading = $state(false);
@@ -12,6 +20,7 @@ class LyricsState {
   synced = $state(false);
   syncedLines = $state<SyncedLine[]>([]);
   visible = $state(false);
+  searchStage = $state<LyricsSearchStage>("idle");
 
   reset() {
     this.trackId = "";
@@ -21,6 +30,7 @@ class LyricsState {
     this.source = "";
     this.synced = false;
     this.syncedLines = [];
+    this.searchStage = "idle";
   }
 }
 

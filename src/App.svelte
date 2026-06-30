@@ -27,6 +27,7 @@
   import { player } from "./lib/state/player.svelte";
   import { nav } from "./lib/state/nav.svelte";
   import { config } from "./lib/state/config.svelte";
+  import { lyricsState } from "./lib/state/lyrics.svelte";
 
   let cleanup: (() => void) | undefined;
 
@@ -52,7 +53,6 @@
       if (type === "text" || type === "search" || type === "password" || type === "range") return;
     }
     if (target.tagName.toLowerCase() === "textarea") return;
-
     switch (e.key.toLowerCase()) {
       case " ":
         e.preventDefault();
@@ -142,7 +142,7 @@
   <FocusView />
   <Player />
   <LyricsView />
-  <div class="notify-stack">
+  <div class="notify-stack" class:lyrics-shifted={lyricsState.visible}>
     <Toast />
     <DownloadActivity />
   </div>
@@ -160,6 +160,11 @@
     gap: 10px;
     z-index: 70;
     pointer-events: none;
+    transition: right 280ms var(--ease-out-expo);
+  }
+
+  .notify-stack.lyrics-shifted {
+    right: calc(340px + 18px);
   }
 
   .app-shell {

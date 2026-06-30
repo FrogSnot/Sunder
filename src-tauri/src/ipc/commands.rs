@@ -18,7 +18,7 @@ pub fn set_config(config: AppConfig, manager: State<'_, ConfigManager>) {
 use crate::audio::AudioHandle;
 use crate::audio::engine::AudioCommand;
 use crate::audio::equalizer::BAND_COUNT;
-use crate::db::SearchCache;
+use crate::db::{CachedLyrics, SearchCache};
 use crate::downloads::DownloadManager;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
@@ -304,6 +304,23 @@ pub async fn get_subtitles(
     extractor: State<'_, Extractor>,
 ) -> Result<String, String> {
     extractor.get_subtitles(&video_id, &lang).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_lyrics_cache(track_id: String, db: State<'_, SearchCache>) -> Option<CachedLyrics> {
+    db.get_lyrics(&track_id).ok().flatten()
+}
+
+#[tauri::command]
+pub fn save_lyrics_cache(
+    track_id: String,
+    content: String,
+    synced_lyrics: String,
+    source: String,
+    db: State<'_, SearchCache>,
+) -> Result<(), String> {
+    db.upsert_lyrics(&track_id, &content, &synced_lyrics, &source)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

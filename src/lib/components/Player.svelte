@@ -8,6 +8,7 @@
   import SleepTimer from "./SleepTimer.svelte";
   import { lyricsState } from "../state/lyrics.svelte";
   import { nav } from "../state/nav.svelte";
+  import { toastState } from "../state/toast.svelte";
   import DownloadButton from "./DownloadButton.svelte";
 
   let showMoreMenu = $state(false);
@@ -94,6 +95,39 @@
   }
 
   let hasTrack = $derived(player.currentTrack !== null);
+
+  let windowWidth = $state(window.innerWidth);
+  $effect(() => {
+    const onResize = () => {
+      windowWidth = window.innerWidth;
+      if (lyricsState.visible && window.innerWidth < 1100) {
+        lyricsState.visible = false;
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
+
+  function toggleLyrics() {
+    if (!lyricsState.visible && window.innerWidth < 1100) {
+      toastState.add("Lyrics needs more horizontal space — try widening your window", "info", 4000);
+      return;
+    }
+    lyricsState.visible = !lyricsState.visible;
+    if (lyricsState.visible) showMoreMenu = false;
+  }
+
+  let canToggleLyrics = $derived(
+    lyricsState.visible || windowWidth >= 1100
+  );
+
+  let lyricsTitle = $derived(
+    lyricsState.visible
+      ? "Close lyrics"
+      : windowWidth < 1100
+        ? "Lyrics — window too narrow"
+        : "Lyrics"
+  );
 </script>
 
 <footer class="player" class:visible={hasTrack}>
@@ -235,9 +269,10 @@
         <button
           class="ctrl-btn ctrl-sm"
           class:active-toggle={lyricsState.visible}
-          onclick={() => { lyricsState.visible = !lyricsState.visible; if (lyricsState.visible) showMoreMenu = false; }}
-          aria-label="Lyrics"
-          title="Lyrics"
+          onclick={toggleLyrics}
+          disabled={!canToggleLyrics}
+          aria-label={lyricsTitle}
+          title={lyricsTitle}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3M9 22h6" />
