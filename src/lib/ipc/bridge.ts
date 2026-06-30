@@ -381,6 +381,13 @@ export async function fetchLyrics(trackId: string, artist: string, title: string
   lyricsState.loading = true;
   lyricsState.searchStage = "cache";
 
+  // Load saved offset for this track (independent of whether lyrics load successfully)
+  try {
+    lyricsState.offsetMs = await getLyricOffset(trackId);
+  } catch {
+    lyricsState.offsetMs = 0;
+  }
+
   try {
     // 0. SQLite cache check (instant, no network)
     try {
@@ -450,6 +457,14 @@ export async function saveLyricsCache(
   source: string
 ): Promise<void> {
   await invoke("save_lyrics_cache", { trackId, content, syncedLyrics, source });
+}
+
+export async function getLyricOffset(trackId: string): Promise<number> {
+  return invoke<number>("get_lyric_offset", { trackId });
+}
+
+export async function setLyricOffset(trackId: string, offsetMs: number): Promise<void> {
+  await invoke("set_lyric_offset", { trackId, offsetMs });
 }
 
 async function tryLrclib(artist: string, title: string, duration?: number): Promise<boolean> {

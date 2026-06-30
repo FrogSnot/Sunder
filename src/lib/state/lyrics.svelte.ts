@@ -21,6 +21,7 @@ class LyricsState {
   syncedLines = $state<SyncedLine[]>([]);
   visible = $state(false);
   searchStage = $state<LyricsSearchStage>("idle");
+  offsetMs = $state(0);
 
   reset() {
     this.trackId = "";
@@ -31,6 +32,7 @@ class LyricsState {
     this.synced = false;
     this.syncedLines = [];
     this.searchStage = "idle";
+    this.offsetMs = 0;
   }
 }
 

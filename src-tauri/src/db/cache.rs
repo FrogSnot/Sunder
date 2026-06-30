@@ -87,7 +87,12 @@ impl SearchCache {
                  source        TEXT NOT NULL DEFAULT '',
                  fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
              );
-             CREATE INDEX IF NOT EXISTS idx_lyrics_fetched ON lyrics_cache(fetched_at);",
+             CREATE INDEX IF NOT EXISTS idx_lyrics_fetched ON lyrics_cache(fetched_at);
+
+             CREATE TABLE IF NOT EXISTS lyric_offsets (
+                 track_id  TEXT PRIMARY KEY,
+                 offset_ms INTEGER NOT NULL DEFAULT 0
+             );",
         )?;
 
         // Migration: downloads table. A legacy table lacking the expected
@@ -185,6 +190,27 @@ impl SearchCache {
                  source = excluded.source,
                  fetched_at = datetime('now')",
             params![track_id, content, synced_lyrics, source],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_lyric_offset(&self, track_id: &str) -> Result<i64, AppError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT offset_ms FROM lyric_offsets WHERE track_id = ?1")?;
+        let mut rows = stmt.query(params![track_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(row.get(0)?)
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub fn upsert_lyric_offset(&self, track_id: &str, offset_ms: i64) -> Result<(), AppError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO lyric_offsets (track_id, offset_ms) VALUES (?1, ?2)
+             ON CONFLICT(track_id) DO UPDATE SET offset_ms = excluded.offset_ms",
+            params![track_id, offset_ms],
         )?;
         Ok(())
     }

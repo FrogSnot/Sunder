@@ -2,7 +2,7 @@
   import { lyricsState, type LyricsSearchStage } from "../state/lyrics.svelte";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
-  import { fetchLyrics } from "../ipc/bridge";
+  import { fetchLyrics, setLyricOffset } from "../ipc/bridge";
   import WormText from "./WormText.svelte";
 
   let lyricsContainer = $state<HTMLDivElement | undefined>();
@@ -23,8 +23,34 @@
   // Compute active lyric line index once (not per-line in template)
   let activeLineIdx = $derived.by(() => {
     if (!lyricsState.synced || !lyricsState.visible) return -1;
-    return lyricsState.syncedLines.findLastIndex((l) => l.time <= player.currentTime);
+    const effectiveTime = player.currentTime - (lyricsState.offsetMs / 1000);
+    return lyricsState.syncedLines.findLastIndex((l) => l.time <= effectiveTime);
   });
+
+  function adjustOffset(deltaMs: number) {
+    const trackId = lyricsState.trackId;
+    if (!trackId || !lyricsState.synced) return;
+    const newOffset = Math.max(-60000, Math.min(60000, lyricsState.offsetMs + deltaMs));
+    lyricsState.offsetMs = newOffset;
+    setLyricOffset(trackId, newOffset).catch(() => {});
+  }
+
+  function resetOffset() {
+    const trackId = lyricsState.trackId;
+    if (!trackId) return;
+    lyricsState.offsetMs = 0;
+    setLyricOffset(trackId, 0).catch(() => {});
+  }
+
+  function formatOffset(ms: number): string {
+    const totalSeconds = Math.round(ms / 1000);
+    if (totalSeconds === 0) return "0:00";
+    const sign = totalSeconds > 0 ? "+" : "-";
+    const absSec = Math.abs(totalSeconds);
+    const m = Math.floor(absSec / 60);
+    const s = absSec % 60;
+    return `${sign}${m}:${s.toString().padStart(2, "0")}`;
+  }
 
   // Auto-scroll to current synced line
   $effect(() => {
@@ -79,6 +105,34 @@
           Searching…
         {/if}
       </span>
+    </div>
+  {/if}
+
+  {#if lyricsState.synced && lyricsState.trackId}
+    <div class="lyrics-offset-bar" role="group" aria-label="Lyrics time offset">
+      <button
+        class="offset-btn"
+        onclick={() => adjustOffset(-500)}
+        aria-label="Delay lyrics by 0.5 seconds"
+        title="Delay lyrics (click to make them appear later)"
+      >−</button>
+      <span class="offset-display" title={`Current offset: ${formatOffset(lyricsState.offsetMs)}`}>
+        {formatOffset(lyricsState.offsetMs)}
+      </span>
+      <button
+        class="offset-btn"
+        onclick={() => adjustOffset(500)}
+        aria-label="Advance lyrics by 0.5 seconds"
+        title="Advance lyrics (click to make them appear earlier)"
+      >+</button>
+      {#if lyricsState.offsetMs !== 0}
+        <button
+          class="offset-reset"
+          onclick={resetOffset}
+          aria-label="Reset offset to zero"
+          title="Reset offset"
+        >×</button>
+      {/if}
     </div>
   {/if}
 
@@ -215,6 +269,65 @@
     font-size: 0.75rem;
     color: var(--text-secondary);
     text-align: center;
+  }
+
+  .lyrics-offset-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--bg-overlay);
+    background: var(--bg-base);
+  }
+
+  .offset-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-overlay);
+    border-radius: var(--radius-sm);
+    transition: color 150ms ease, background 150ms ease;
+  }
+
+  .offset-btn:hover {
+    color: var(--accent);
+    background: var(--bg-elevated);
+  }
+
+  .offset-btn:active {
+    background: var(--accent-dim);
+  }
+
+  .offset-display {
+    min-width: 64px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .offset-reset {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    background: transparent;
+    border-radius: var(--radius-sm);
+    transition: color 150ms ease;
+  }
+
+  .offset-reset:hover {
+    color: var(--error);
   }
 
   .lyrics-body {

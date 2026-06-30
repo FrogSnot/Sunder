@@ -116,6 +116,8 @@ pub fn run() {
             ipc::commands::get_subtitles,
             ipc::commands::get_lyrics_cache,
             ipc::commands::save_lyrics_cache,
+            ipc::commands::get_lyric_offset,
+            ipc::commands::set_lyric_offset,
             ipc::commands::import_yt_playlist,
             ipc::commands::pause,
             ipc::commands::resume,

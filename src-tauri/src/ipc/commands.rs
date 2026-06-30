@@ -324,6 +324,17 @@ pub fn save_lyrics_cache(
 }
 
 #[tauri::command]
+pub fn get_lyric_offset(track_id: String, db: State<'_, SearchCache>) -> i64 {
+    db.get_lyric_offset(&track_id).unwrap_or(0)
+}
+
+#[tauri::command]
+pub fn set_lyric_offset(track_id: String, offset_ms: i64, db: State<'_, SearchCache>) -> Result<(), String> {
+    db.upsert_lyric_offset(&track_id, offset_ms)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn import_yt_playlist(
     url: String,
     playlist_name: String,
