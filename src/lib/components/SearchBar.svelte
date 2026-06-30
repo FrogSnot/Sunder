@@ -7,17 +7,24 @@
   async function handleInput() {
     const q = searchState.query.trim();
     if (!q) {
+      searchState.bumpGen();
       searchState.results = [];
       searchState.hasMore = false;
       searchState.limit = 20;
+      searchState.resultSource = null;
       return;
     }
 
     searchState.hasMore = false;
+    const myGen = searchState.bumpGen();
     try {
       const local = await searchLocal(q);
-      if (local.length > 0) searchState.results = local;
+      if (!searchState.isLatest(myGen)) return;
+      if (local.length === 0) return;
+      searchState.results = local;
+      searchState.resultSource = "local";
     } catch {}
+    if (!searchState.isLatest(myGen)) return;
 
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
@@ -28,10 +35,13 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      clearTimeout(debounceTimer);
+      searchState.bumpGen();
       searchState.query = "";
       searchState.results = [];
       searchState.hasMore = false;
       searchState.limit = 20;
+      searchState.resultSource = null;
     }
   }
 </script>
@@ -43,7 +53,7 @@
   </svg>
   <input
     type="text"
-    placeholder="Search tracks..."
+    placeholder="Search YouTube..."
     bind:value={searchState.query}
     oninput={handleInput}
     onkeydown={handleKeydown}
@@ -54,6 +64,11 @@
     </div>
   {/if}
 </div>
+{#if searchState.searching}
+  <p class="search-status">Searching YouTube…</p>
+{:else if searchState.query.trim() && searchState.results.length > 0}
+  <p class="search-status meta">{searchState.results.length} result{searchState.results.length === 1 ? '' : 's'}</p>
+{/if}
 
 <style>
   .search-bar {
@@ -115,4 +130,17 @@
 
   .dot-loader span:nth-child(2) { animation-delay: 0.15s; }
   .dot-loader span:nth-child(3) { animation-delay: 0.3s; }
+
+  .search-status {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 6px 4px 0;
+    margin: 0;
+    transition: color 200ms ease;
+  }
+
+  .search-status.meta {
+    color: var(--text-muted);
+    opacity: 0.85;
+  }
 </style>

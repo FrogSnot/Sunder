@@ -48,6 +48,8 @@
     );
   });
 
+  let filterActive = $derived(trackFilter.trim().length > 0);
+
   function handleFilterKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") trackFilter = "";
   }
@@ -152,7 +154,20 @@
     }
   }
 
-  async function handleDelete(id: number) {
+  let confirmingDeleteId = $state<number | null>(null);
+  let confirmTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function startDeleteConfirm(e: MouseEvent, id: number) {
+    e.stopPropagation();
+    if (confirmTimer) clearTimeout(confirmTimer);
+    confirmingDeleteId = id;
+    confirmTimer = setTimeout(() => { confirmingDeleteId = null; }, 3000);
+  }
+
+  async function confirmDelete(e: MouseEvent, id: number) {
+    e.stopPropagation();
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+    confirmingDeleteId = null;
     try {
       await deletePlaylist(id);
       if (nav.activePlaylistId === id) {
@@ -166,6 +181,23 @@
       toastState.add(`Failed to delete playlist: ${e}`, "error");
     }
   }
+
+  function cancelDelete() {
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+    confirmingDeleteId = null;
+  }
+
+  $effect(() => {
+    if (confirmingDeleteId === null) return;
+    const onClick = () => cancelDelete();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cancelDelete(); };
+    window.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
 
   async function openPlaylist(p: Playlist) {
     nav.activeTab = "playlist-detail";
@@ -213,12 +245,47 @@
     return player.currentTrack?.id === track.id;
   }
 
-  async function handlePlayAll() {
-    if (detailTracks.length === 0) return;
-    player.setQueue(detailTracks);
+  let showPlayAllMenu = $state(false);
+
+  async function playNow(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    player.setQueue(tracks);
     const first = player.playFromQueue(0);
     if (first) await playTrack(first);
   }
+
+  async function playNextTracks(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    for (const track of [...tracks].reverse()) player.playNext(track);
+    toastState.add(`Queued ${tracks.length} track${tracks.length === 1 ? "" : "s"} next`, "info", 2000);
+  }
+
+  async function addToQueueEnd(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    for (const track of tracks) player.addToQueue(track);
+    toastState.add(`Added ${tracks.length} track${tracks.length === 1 ? "" : "s"} to queue`, "info", 2000);
+  }
+
+  function togglePlayAllMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showPlayAllMenu = !showPlayAllMenu;
+  }
+
+  function closePlayAllMenu() {
+    showPlayAllMenu = false;
+  }
+
+  $effect(() => {
+    if (!showPlayAllMenu) return;
+    const onClick = () => { showPlayAllMenu = false; };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") showPlayAllMenu = false; };
+    window.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
 
   function handleDownloadAll() {
     if (nav.activePlaylistId === null || detailTracks.length === 0) return;
@@ -291,9 +358,13 @@
     },
     getScrollContainer: () => document.querySelector(".content") as HTMLElement | null,
     rowSelector: ".drag-row",
+    disabled: () => filterActive,
   });
 
-  onMount(() => () => reorder.destroy());
+  onMount(() => () => {
+    reorder.destroy();
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+  });
 </script>
 
 <ContextMenu bind:this={ctxMenu} onRemoveFromPlaylist={(id) => { detailTracks = detailTracks.filter((t) => t.id !== id); }} />
@@ -310,10 +381,39 @@
     <div class="detail-header">
       <h2 class="detail-title">{nav.activePlaylistName}</h2>
       {#if detailTracks.length > 0}
-        <button class="play-all-btn" onclick={handlePlayAll} aria-label="Play all">
-          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Play All
-        </button>
+        <div class="play-all-wrapper">
+          <button class="play-all-btn" onclick={togglePlayAllMenu} aria-label="Play all" aria-expanded={showPlayAllMenu} aria-haspopup="menu">
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Play All
+          </button>
+          {#if showPlayAllMenu}
+            <div class="play-all-menu" role="menu">
+              <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); playNow(detailTracks); closePlayAllMenu(); }}>
+                <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span class="play-menu-label">Play now</span>
+                <span class="play-menu-sub">Replace queue</span>
+              </button>
+              <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); playNextTracks(detailTracks); closePlayAllMenu(); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="17 1 21 5 17 9" />
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                  <polyline points="7 23 3 19 7 15" />
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                </svg>
+                <span class="play-menu-label">Play next</span>
+                <span class="play-menu-sub">After current</span>
+              </button>
+              <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); addToQueueEnd(detailTracks); closePlayAllMenu(); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span class="play-menu-label">Add to queue</span>
+                <span class="play-menu-sub">Append to end</span>
+              </button>
+            </div>
+          {/if}
+        </div>
         <button class="export-btn" onclick={handleDownloadAll} aria-label="Download all tracks">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -366,6 +466,9 @@
         {/if}
         {#if trackFilter.trim()}
           <span class="filter-count">{filteredTracks.length} of {detailTracks.length}</span>
+          <span class="filter-hint" title="Reordering is disabled while filtering — clear the filter to reorder tracks">
+            Reorder off
+          </span>
         {/if}
       </div>
       {#if filteredTracks.length === 0}
@@ -377,6 +480,7 @@
           <div
             class="track-row drag-row"
             class:active={isActive(track)}
+            class:filter-locked={filterActive}
             class:is-dragging={reorder.isDragging(originalIndex)}
             class:drop-before={reorder.dragOver === originalIndex && reorder.dropPosition === "before" && reorder.dragFrom !== originalIndex}
             class:drop-after={reorder.dragOver === originalIndex && reorder.dropPosition === "after" && reorder.dragFrom !== originalIndex}
@@ -385,7 +489,7 @@
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => ctxMenu.open(e, track)}
           >
-            <span class="drag-handle" aria-hidden="true">
+            <span class="drag-handle" aria-hidden="true" class:disabled={filterActive} title={filterActive ? "Reordering disabled while filtering — clear the filter to reorder" : "Drag to reorder"}>
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
             <span class="track-num">{originalIndex + 1}</span>
@@ -498,12 +602,18 @@
                 <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
             </button>
-            <button class="row-action-btn delete drag-skip" onclick={() => handleDelete(p.id)} aria-label="Delete playlist">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-              </svg>
-            </button>
+            {#if confirmingDeleteId === p.id}
+              <button class="row-action-btn delete drag-skip confirming" onclick={(e) => confirmDelete(e, p.id)} aria-label="Confirm delete playlist">
+                Confirm?
+              </button>
+            {:else}
+              <button class="row-action-btn delete drag-skip" onclick={(e) => startDeleteConfirm(e, p.id)} aria-label="Delete playlist">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                </svg>
+              </button>
+            {/if}
           </div>
         {/each}
       </div>
@@ -705,6 +815,30 @@
   .row-action-btn.delete:hover { color: var(--error); }
   .row-action-btn svg { width: 16px; height: 16px; }
 
+  .row-action-btn.confirming {
+    width: auto;
+    min-width: 32px;
+    padding: 0 10px;
+    color: var(--error);
+    border: 1px solid var(--error);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: color-mix(in srgb, var(--error) 14%, transparent);
+    animation: confirmPulse 1.6s ease-in-out infinite;
+  }
+
+  .row-action-btn.confirming:hover {
+    color: #fff;
+    background: var(--error);
+    transform: scale(1.05);
+  }
+
+  @keyframes confirmPulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--error) 50%, transparent); }
+    50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--error) 0%, transparent); }
+  }
+
   .rename-input {
     background: var(--bg-overlay);
     border: 1px solid var(--accent-dim);
@@ -756,6 +890,72 @@
   .play-all-btn svg {
     width: 14px;
     height: 14px;
+  }
+
+  .play-all-wrapper {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .play-all-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 220px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    animation: scaleIn 180ms var(--ease-out-expo);
+    transform-origin: top left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .play-menu-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    transition: background 150ms ease, color 150ms ease;
+  }
+
+  .play-menu-item:hover {
+    background: var(--bg-overlay);
+    color: var(--accent);
+  }
+
+  .play-menu-item svg {
+    grid-row: 1 / span 2;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .play-menu-label {
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .play-menu-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.2;
+  }
+
+  .play-menu-item:hover .play-menu-sub {
+    color: var(--text-secondary);
   }
 
   .export-btn {
@@ -819,6 +1019,15 @@
   }
 
   .track-row:active { cursor: grabbing; }
+
+  .track-row.filter-locked,
+  .track-row.filter-locked:active {
+    cursor: default;
+  }
+
+  .drag-handle.disabled {
+    opacity: 0.4;
+  }
 
   .track-row.active {
     background: var(--bg-elevated);
@@ -954,6 +1163,17 @@
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+  }
+
+  .filter-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-overlay);
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+    cursor: help;
   }
 
   .filter-clear {

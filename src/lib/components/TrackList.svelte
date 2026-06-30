@@ -62,6 +62,11 @@
     <p class="empty-sub">Results will appear here</p>
   </div>
 {:else}
+  {#if searchState.resultSource}
+    <div class="result-source-chip" aria-live="polite">
+      {searchState.resultSource === "local" ? "From your library" : "From YouTube"}
+    </div>
+  {/if}
   <div class="track-list">
     {#each tracks as track, i (track.id)}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -133,6 +138,18 @@
     flex-direction: column;
     gap: 2px;
     animation: viewEnter 350ms var(--ease-out-expo);
+  }
+
+  .result-source-chip {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: var(--bg-overlay);
+    padding: 3px 10px;
+    border-radius: 999px;
+    display: inline-block;
+    align-self: flex-start;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
   }
 
   .track-row {

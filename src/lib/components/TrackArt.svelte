@@ -22,6 +22,12 @@
   let badgeSize = $derived(Math.max(18, Math.round(size * 0.46)));
   let isActive = $derived(downloads.isActive(track.id));
   let downloaded = $derived(downloads.isDownloaded(track.id));
+
+  function fallbackInitial(track: Track): string {
+    const title = track.title?.trim() ?? "";
+    if (title.length === 0) return "?";
+    return title[0].toUpperCase();
+  }
 </script>
 
 <div class="track-art" class:active style="--art: {size}px">
@@ -31,7 +37,11 @@
     disabled={!onplay}
     aria-label="Play {track.title}"
   >
-    <img class="ta-thumb" src={track.thumbnail || ""} alt="" loading="lazy" />
+    {#if track.thumbnail}
+      <img class="ta-thumb" src={track.thumbnail} alt="" loading="lazy" />
+    {:else}
+      <span class="art-fallback" aria-hidden="true">{fallbackInitial(track)}</span>
+    {/if}
     <span class="ta-overlay" class:show={active && playing}>
       {#if active && playing}
         <span class="ta-bars"><i></i><i></i><i></i></span>
@@ -76,6 +86,22 @@
     object-fit: cover;
     background: var(--bg-overlay);
     display: block;
+  }
+
+  .art-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(135deg, rgba(212, 160, 23, 0.22), rgba(76, 175, 80, 0.10)),
+      var(--bg-overlay);
+    color: var(--accent-light);
+    font-size: calc(var(--art) * 0.4);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border-radius: inherit;
   }
 
   .ta-overlay {

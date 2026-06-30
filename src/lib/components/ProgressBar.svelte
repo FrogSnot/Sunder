@@ -37,7 +37,47 @@
     player.currentTime = Math.min(pct * player.duration, player.duration);
   }
 
+  function formatTime(secs: number): string {
+    if (!secs || secs < 0) return "0:00";
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  async function handleKeydown(e: KeyboardEvent) {
+    if (!player.duration) return;
+    let newTime = player.currentTime;
+    switch (e.key) {
+      case "ArrowLeft":
+      case "ArrowDown":
+        newTime = Math.max(0, player.currentTime - 5);
+        break;
+      case "ArrowRight":
+      case "ArrowUp":
+        newTime = Math.min(player.duration, player.currentTime + 5);
+        break;
+      case "Home":
+        newTime = 0;
+        break;
+      case "End":
+        newTime = player.duration;
+        break;
+      case "PageDown":
+        newTime = Math.max(0, player.currentTime - 30);
+        break;
+      case "PageUp":
+        newTime = Math.min(player.duration, player.currentTime + 30);
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    player.currentTime = newTime;
+    await seek(newTime);
+  }
+
   let progressPct = $derived(player.progress * 100);
+  let valueText = $derived(`${formatTime(player.currentTime)} of ${formatTime(player.duration)}`);
 </script>
 
 <div
@@ -47,10 +87,12 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
+  onkeydown={handleKeydown}
   role="slider"
   aria-valuenow={player.currentTime}
   aria-valuemin={0}
   aria-valuemax={player.duration}
+  aria-valuetext={valueText}
   tabindex="0"
 >
   <div class="track">
@@ -100,6 +142,12 @@
 
   .progress-bar:hover .thumb {
     opacity: 1;
+  }
+
+  .progress-bar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+    border-radius: 2px;
   }
 
   .hover-indicator {

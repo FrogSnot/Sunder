@@ -48,11 +48,18 @@
 
   async function handleKeyDown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
-    if (target.tagName.toLowerCase() === "input") {
-      const type = (target as HTMLInputElement).type;
-      if (type === "text" || type === "search" || type === "password" || type === "range") return;
+
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target.isContentEditable
+    ) {
+      return;
     }
-    if (target.tagName.toLowerCase() === "textarea") return;
+
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
     switch (e.key.toLowerCase()) {
       case " ":
         e.preventDefault();
@@ -65,20 +72,18 @@
         }
         break;
       case "arrowleft":
+        if (!player.currentTrack || player.duration <= 0) break;
         e.preventDefault();
-        if (player.currentTrack && player.duration > 0) {
-          const newTime = Math.max(0, player.currentTime - seekStep);
-          player.currentTime = newTime;
-          await seek(newTime);
-        }
+        const newTimeLeft = Math.max(0, player.currentTime - seekStep);
+        player.currentTime = newTimeLeft;
+        await seek(newTimeLeft);
         break;
       case "arrowright":
+        if (!player.currentTrack || player.duration <= 0) break;
         e.preventDefault();
-        if (player.currentTrack && player.duration > 0) {
-          const newTime = Math.min(player.currentTime + seekStep, player.duration);
-          player.currentTime = newTime;
-          await seek(newTime);
-        }
+        const newTimeRight = Math.min(player.currentTime + seekStep, player.duration);
+        player.currentTime = newTimeRight;
+        await seek(newTimeRight);
         break;
       case "arrowup":
         e.preventDefault();

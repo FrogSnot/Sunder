@@ -61,12 +61,47 @@
     }
   }
 
-  async function handlePlayAll() {
+  let showPlayAllMenu = $state(false);
+
+  async function playNow(tracks: Track[]) {
     if (tracks.length === 0) return;
     player.setQueue(tracks);
     const first = player.playFromQueue(0);
     if (first) await playTrack(first);
   }
+
+  async function playNextTracks(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    for (const track of [...tracks].reverse()) player.playNext(track);
+    toastState.add(`Queued ${tracks.length} track${tracks.length === 1 ? "" : "s"} next`, "info", 2000);
+  }
+
+  async function addToQueueEnd(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    for (const track of tracks) player.addToQueue(track);
+    toastState.add(`Added ${tracks.length} track${tracks.length === 1 ? "" : "s"} to queue`, "info", 2000);
+  }
+
+  function togglePlayAllMenu(e: MouseEvent) {
+    e.stopPropagation();
+    showPlayAllMenu = !showPlayAllMenu;
+  }
+
+  function closePlayAllMenu() {
+    showPlayAllMenu = false;
+  }
+
+  $effect(() => {
+    if (!showPlayAllMenu) return;
+    const onClick = () => { showPlayAllMenu = false; };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") showPlayAllMenu = false; };
+    window.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  });
 
   const reorder = new DragReorder({
     getList: () => tracks,
@@ -98,10 +133,39 @@
       {/if}
     </div>
     {#if tracks.length > 0}
-      <button class="play-all-btn" onclick={handlePlayAll} aria-label="Play all downloads">
-        <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Play All
-      </button>
+      <div class="play-all-wrapper">
+        <button class="play-all-btn" onclick={togglePlayAllMenu} aria-label="Play all downloads" aria-expanded={showPlayAllMenu} aria-haspopup="menu">
+          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Play All
+        </button>
+        {#if showPlayAllMenu}
+          <div class="play-all-menu" role="menu">
+            <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); playNow(tracks); closePlayAllMenu(); }}>
+              <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span class="play-menu-label">Play now</span>
+              <span class="play-menu-sub">Replace queue</span>
+            </button>
+            <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); playNextTracks(tracks); closePlayAllMenu(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 1 21 5 17 9" />
+                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                <polyline points="7 23 3 19 7 15" />
+                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              </svg>
+              <span class="play-menu-label">Play next</span>
+              <span class="play-menu-sub">After current</span>
+            </button>
+            <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); addToQueueEnd(tracks); closePlayAllMenu(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span class="play-menu-label">Add to queue</span>
+              <span class="play-menu-sub">Append to end</span>
+            </button>
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
 
@@ -219,6 +283,73 @@
   .play-all-btn svg {
     width: 16px;
     height: 16px;
+  }
+
+  .play-all-wrapper {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .play-all-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 220px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--bg-overlay);
+    border-radius: var(--radius);
+    padding: 4px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    animation: scaleIn 180ms var(--ease-out-expo);
+    transform-origin: top right;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .play-menu-item {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    transition: background 150ms ease, color 150ms ease;
+  }
+
+  .play-menu-item:hover {
+    background: var(--bg-overlay);
+    color: var(--accent);
+  }
+
+  .play-menu-item svg {
+    grid-row: 1 / span 2;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .play-menu-label {
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .play-menu-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.2;
+  }
+
+  .play-menu-item:hover .play-menu-sub {
+    color: var(--text-secondary);
   }
 
   .empty-state {
