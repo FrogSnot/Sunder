@@ -8,6 +8,11 @@
 
   let lyricsContainer = $state<HTMLDivElement | undefined>();
 
+  // Suppress auto-scroll for a short window after the user adjusts the offset.
+  // Plain `let` (not `$state`) so the auto-scroll $effect does NOT subscribe to it.
+  let suppressingScroll = false;
+  let suppressTimeout: ReturnType<typeof setTimeout> | undefined;
+
   const stageOrder: LyricsSearchStage[] = ["cache", "lrclib", "lrclib-search", "lyrics-ovh", "subtitles"];
   let currentStageIdx = $derived(stageOrder.indexOf(lyricsState.searchStage));
 
@@ -29,6 +34,10 @@
   });
 
   function adjustOffset(deltaMs: number) {
+    suppressingScroll = true;
+    if (suppressTimeout) clearTimeout(suppressTimeout);
+    suppressTimeout = setTimeout(() => { suppressingScroll = false; }, 250);
+
     const trackId = lyricsState.trackId;
     if (!trackId || !lyricsState.synced) return;
     const newOffset = Math.max(-60000, Math.min(60000, lyricsState.offsetMs + deltaMs));
@@ -56,6 +65,7 @@
   // Auto-scroll to current synced line
   $effect(() => {
     if (!lyricsState.synced || !lyricsState.visible) return;
+    if (suppressingScroll) return;
     const ct = player.currentTime;
     const offsetMs = untrack(() => lyricsState.offsetMs);
     const effectiveTime = ct - (offsetMs / 1000);

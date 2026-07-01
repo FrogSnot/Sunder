@@ -20,9 +20,10 @@
     try {
       const local = await searchLocal(q);
       if (!searchState.isLatest(myGen)) return;
-      if (local.length === 0) return;
-      searchState.results = local;
-      searchState.resultSource = "local";
+      if (local.length > 0) {
+        searchState.results = local;
+        searchState.resultSource = "local";
+      }
     } catch {}
     if (!searchState.isLatest(myGen)) return;
 

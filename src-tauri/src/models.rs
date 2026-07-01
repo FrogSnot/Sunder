@@ -22,6 +22,7 @@ pub struct SearchResult {
 pub enum SearchSource {
     Local,
     Remote,
+    Mixed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

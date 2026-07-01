@@ -32,11 +32,9 @@ pub async fn search(
 ) -> Result<SearchResult, String> {
     let limit = limit.unwrap_or(20).min(100);
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
-    if !local.is_empty() {
-        return Ok(SearchResult { tracks: local, source: SearchSource::Local });
-    }
+    let local_count = local.len();
 
-    // Search both YT Music and YouTube, merge results
+    // Always search both YT Music and YouTube in parallel, then merge with local
     let (music, youtube) = tokio::join!(
         extractor.search(&query, limit),
         extractor.search_youtube(&query, limit)
@@ -48,7 +46,14 @@ pub async fn search(
     let music_err = music.as_ref().err().map(|e| e.to_string());
     let youtube_err = youtube.as_ref().err().map(|e| e.to_string());
 
-    // YT Music results first (priority)
+    // Local results first (priority)
+    for t in local {
+        if seen.insert(t.id.clone()) {
+            tracks.push(t);
+        }
+    }
+
+    // YT Music results next
     if let Ok(music_tracks) = music {
         for t in music_tracks {
             if seen.insert(t.id.clone()) {
@@ -78,7 +83,16 @@ pub async fn search(
 
     let _ = db.upsert_tracks(&tracks);
 
-    Ok(SearchResult { tracks, source: SearchSource::Remote })
+    let remote_added = tracks.len().saturating_sub(local_count);
+    let source = if local_count > 0 && remote_added > 0 {
+        SearchSource::Mixed
+    } else if local_count > 0 {
+        SearchSource::Local
+    } else {
+        SearchSource::Remote
+    };
+
+    Ok(SearchResult { tracks, source })
 }
 
 #[tauri::command]
