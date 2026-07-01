@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { lyricsState, type LyricsSearchStage } from "../state/lyrics.svelte";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
@@ -55,7 +56,10 @@
   // Auto-scroll to current synced line
   $effect(() => {
     if (!lyricsState.synced || !lyricsState.visible) return;
-    const idx = activeLineIdx;
+    const ct = player.currentTime;
+    const offsetMs = untrack(() => lyricsState.offsetMs);
+    const effectiveTime = ct - (offsetMs / 1000);
+    const idx = lyricsState.syncedLines.findLastIndex((l) => l.time <= effectiveTime);
     if (idx >= 0 && lyricsContainer) {
       const el = lyricsContainer.children[idx] as HTMLElement | undefined;
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -109,30 +113,20 @@
   {/if}
 
   {#if lyricsState.synced && lyricsState.trackId}
-    <div class="lyrics-offset-bar" role="group" aria-label="Lyrics time offset">
+    <div class="offset-pill" role="group" aria-label="Lyrics time offset">
       <button
-        class="offset-btn"
         onclick={() => adjustOffset(-500)}
-        aria-label="Delay lyrics by 0.5 seconds"
-        title="Delay lyrics (click to make them appear later)"
+        aria-label="Advance lyrics by 0.5 seconds"
+        title="Make lyrics appear earlier"
       >−</button>
-      <span class="offset-display" title={`Current offset: ${formatOffset(lyricsState.offsetMs)}`}>
+      <span class="offset-value" title={`Current offset: ${formatOffset(lyricsState.offsetMs)}`}>
         {formatOffset(lyricsState.offsetMs)}
       </span>
       <button
-        class="offset-btn"
         onclick={() => adjustOffset(500)}
-        aria-label="Advance lyrics by 0.5 seconds"
-        title="Advance lyrics (click to make them appear earlier)"
+        aria-label="Delay lyrics by 0.5 seconds"
+        title="Make lyrics appear later"
       >+</button>
-      {#if lyricsState.offsetMs !== 0}
-        <button
-          class="offset-reset"
-          onclick={resetOffset}
-          aria-label="Reset offset to zero"
-          title="Reset offset"
-        >×</button>
-      {/if}
     </div>
   {/if}
 
@@ -155,6 +149,7 @@
 
 <style>
   .lyrics-panel {
+    position: relative;
     width: 0;
     min-width: 0;
     height: calc(100vh - var(--player-height));
@@ -271,63 +266,69 @@
     text-align: center;
   }
 
-  .lyrics-offset-bar {
+  .offset-pill {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--bg-overlay);
-    background: var(--bg-base);
+    gap: 2px;
+    padding: 3px 5px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+    opacity: 0.75;
+    transition: opacity 150ms ease;
   }
 
-  .offset-btn {
-    width: 28px;
-    height: 28px;
+  .offset-pill:hover,
+  .offset-pill:focus-within {
+    opacity: 1;
+  }
+
+  .offset-pill button {
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     color: var(--text-secondary);
-    background: var(--bg-overlay);
-    border-radius: var(--radius-sm);
+    background: transparent;
+    border-radius: 999px;
     transition: color 150ms ease, background 150ms ease;
   }
 
-  .offset-btn:hover {
+  .offset-pill button:hover {
     color: var(--accent);
-    background: var(--bg-elevated);
+    background: rgba(255, 255, 255, 0.08);
   }
 
-  .offset-btn:active {
-    background: var(--accent-dim);
+  .offset-pill button:active {
+    color: var(--bg-base);
+    background: var(--accent);
   }
 
-  .offset-display {
-    min-width: 64px;
+  .offset-pill .offset-value {
+    min-width: 48px;
     text-align: center;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
     color: var(--accent);
     font-weight: 500;
+    padding: 0 4px;
+    user-select: none;
+    pointer-events: none;
   }
 
-  .offset-reset {
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.1rem;
-    color: var(--text-muted);
-    background: transparent;
-    border-radius: var(--radius-sm);
-    transition: color 150ms ease;
-  }
-
-  .offset-reset:hover {
-    color: var(--error);
+  @media (prefers-reduced-motion: reduce) {
+    .offset-pill { transition: none; }
   }
 
   .lyrics-body {
