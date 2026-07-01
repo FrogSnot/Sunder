@@ -125,16 +125,16 @@
   {#if lyricsState.synced && lyricsState.trackId}
     <div class="offset-pill" role="group" aria-label="Lyrics time offset">
       <button
-        onclick={() => adjustOffset(-500)}
-        aria-label="Advance lyrics by 0.5 seconds"
+        onclick={() => adjustOffset(-1000)}
+        aria-label="Advance lyrics by 1 second"
         title="Make lyrics appear earlier"
       >−</button>
       <span class="offset-value" title={`Current offset: ${formatOffset(lyricsState.offsetMs)}`}>
         {formatOffset(lyricsState.offsetMs)}
       </span>
       <button
-        onclick={() => adjustOffset(500)}
-        aria-label="Delay lyrics by 0.5 seconds"
+        onclick={() => adjustOffset(1000)}
+        aria-label="Delay lyrics by 1 second"
         title="Make lyrics appear later"
       >+</button>
     </div>
