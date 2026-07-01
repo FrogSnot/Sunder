@@ -64,7 +64,7 @@
 {:else}
   {#if searchState.resultSource}
     <div class="result-source-chip" aria-live="polite">
-      {searchState.resultSource === "local" ? "From your library" : "From YouTube"}
+      {searchState.resultSource === "local" ? "Indexed" : "From YouTube"}
     </div>
   {/if}
   <div class="track-list">
