@@ -19,21 +19,28 @@ fn install_stderr_filter() {
     // Implementation: libc::dup2 the pipe write-end onto fd 2 (stderr),
     // spawn a reader thread that writes non-matching lines to the original
     // stderr fd. Atomic-append buffer is line-by-line until '\n'.
-    use std::io::{Read, Write};
-    use std::os::unix::io::{AsRawFd, FromRawFd};
+    use std::io::Read;
+    use std::os::unix::io::FromRawFd;
     use std::thread;
 
-    let orig_fd = std::io::stderr().as_raw_fd();
+    let orig_fd = unsafe { libc::dup(2) };
+    if orig_fd < 0 {
+        return;
+    }
     let mut pipe_fds = [0 as libc::c_int; 2];
     if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
+        unsafe {
+            libc::close(orig_fd);
+        }
         return;
     }
     let read_fd = pipe_fds[0];
     let write_fd = pipe_fds[1];
-    if unsafe { libc::dup2(write_fd, 2) } != 0 {
+    if unsafe { libc::dup2(write_fd, 2) } < 0 {
         unsafe {
             libc::close(read_fd);
             libc::close(write_fd);
+            libc::close(orig_fd);
         }
         return;
     }
@@ -45,20 +52,12 @@ fn install_stderr_filter() {
         .name("sunder-stderr-filter".into())
         .spawn(move || {
             let mut reader = unsafe { std::fs::File::from_raw_fd(read_fd) };
-            // Keep a duplicate of the original stderr so we can re-emit
-            // non-matching lines. The dup2 above replaced fd 2 with the
-            // pipe write-end, but File::from_raw_fd(orig_fd) would not be
-            // safe because fd 2 no longer points there. Instead, open
-            // /dev/stderr which always resolves to the current fd 2 (but
-            // fd 2 IS our pipe now). So we duplicate the original stderr
-            // BEFORE replacing fd 2 by reading the path. Use
-            // /proc/self/fd/2 pre-replacement is not possible here.
-            //
-            // Simpler: write the non-matching lines to a fresh fd 2 dup of
-            // the original stderr. We saved orig_fd (the OLD fd 2 value)
-            // BEFORE dup2; re-dup that onto fd 2 only for the write path
-            // is racy. Instead, the filter thread just calls libc::write
-            // to the saved orig_fd directly.
+            // orig_fd is a duplicated fd pointing to the ORIGINAL stderr,
+            // captured BEFORE dup2 stole fd 2. Writing to orig_fd writes
+            // to the real stderr, not the pipe. The previous version
+            // captured `as_raw_fd()` (the value 2) and then dup2 made
+            // fd 2 the pipe, creating a feedback loop that filled the
+            // pipe and eventually caused SIGABRT.
             let mut buffer: Vec<u8> = Vec::with_capacity(4096);
             let mut byte = [0u8; 1];
             loop {
@@ -75,9 +74,6 @@ fn install_stderr_filter() {
                                 })
                                 .unwrap_or(false);
                             if !suppress {
-                                // Write the line back to the ORIGINAL
-                                // stderr fd (which we captured before
-                                // dup2 stole fd 2).
                                 unsafe {
                                     let ptr = buffer.as_ptr();
                                     let len = buffer.len();
@@ -104,7 +100,9 @@ fn install_stderr_filter() {
                     let _ = libc::write(orig_fd, ptr as *const _, len);
                 }
             }
-            let _ = Write::flush(&mut std::io::stderr());
+            unsafe {
+                libc::close(orig_fd);
+            }
         });
 }
 
