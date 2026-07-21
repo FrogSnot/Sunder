@@ -28,6 +28,7 @@ pub fn run() {
                 .unwrap_or_else(|_| std::env::current_dir().unwrap().join("sunder_data"));
 
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
+
             app.manage(AudioHandle::new(app.handle().clone()));
             app.manage(Extractor::new());
             app.manage(DownloadManager::new(&data_dir));
@@ -159,6 +160,7 @@ pub fn run() {
             ipc::commands::get_downloads,
             ipc::commands::get_downloads_size,
             ipc::commands::get_download_sizes,
+            ipc::commands::retry_audio_device,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

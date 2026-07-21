@@ -165,6 +165,10 @@ export async function setRepeatMode(mode: "off" | "queue" | "track"): Promise<vo
   await invoke("set_repeat_mode", { mode });
 }
 
+export async function retryAudioDevice(): Promise<void> {
+  await invoke("retry_audio_device");
+}
+
 export async function exportPlaylist(playlistId: number, playlistName: string): Promise<boolean> {
   const path = await save({
     defaultPath: `${playlistName.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`,
@@ -403,7 +407,7 @@ export async function fetchLyrics(trackId: string, artist: string, title: string
         lyricsState.searchStage = "idle";
         return;
       }
-    } catch { /* cache miss / DB error — fall through */ }
+    } catch { /* cache miss / DB error: fall through */ }
 
     const { cleanArtist, cleanTitle } = cleanForSearch(artist, title);
 

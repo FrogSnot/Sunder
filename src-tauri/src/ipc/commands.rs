@@ -1005,3 +1005,16 @@ pub async fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// IPC command for the frontend's "Retry audio" button on the persistent
+/// audio-device-lost toast. Sends AudioCommand::RetryDevice to the audio
+/// thread; the thread's RetryDevice arm runs attempt_device_recovery which
+/// rebuilds the OutputStream on the saved device (or default fallback). On
+/// success the frontend receives audio-device-restored and hides the toast;
+/// on failure audio-device-lost fires again (transition-guarded so no
+/// duplicate toast on already-NoDevice state).
+#[tauri::command]
+pub async fn retry_audio_device(audio: State<'_, AudioHandle>) -> Result<(), String> {
+    audio.send(crate::audio::engine::AudioCommand::RetryDevice);
+    Ok(())
+}

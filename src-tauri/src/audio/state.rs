@@ -9,6 +9,7 @@ pub enum PlaybackState {
     Playing,
     Paused,
     Stopped,
+    NoDevice,
     Error(String),
 }
 
@@ -21,6 +22,7 @@ impl std::fmt::Display for PlaybackState {
             Self::Playing => write!(f, "playing"),
             Self::Paused => write!(f, "paused"),
             Self::Stopped => write!(f, "stopped"),
+            Self::NoDevice => write!(f, "no_device"),
             Self::Error(msg) => write!(f, "error: {msg}"),
         }
     }

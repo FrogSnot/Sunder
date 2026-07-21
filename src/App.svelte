@@ -27,6 +27,7 @@
   import { player } from "./lib/state/player.svelte";
   import { nav } from "./lib/state/nav.svelte";
   import { config } from "./lib/state/config.svelte";
+  import { audioRecovery } from "./lib/state/audioRecovery.svelte";
   import { lyricsState } from "./lib/state/lyrics.svelte";
 
   let cleanup: (() => void) | undefined;
@@ -38,6 +39,7 @@
   onMount(() => {
     cleanup = initProgressListener();
     config.load().then(() => restoreQueue());
+    audioRecovery.init().catch(console.error);
     loadDownloads();
     window.addEventListener("keydown", handleKeyDown);
     return () => {

@@ -110,7 +110,7 @@
 
   function toggleLyrics() {
     if (!lyricsState.visible && window.innerWidth < 1100) {
-      toastState.add("Lyrics needs more horizontal space — try widening your window", "info", 4000);
+      toastState.add("Lyrics needs more horizontal space - try widening your window", "info", 4000);
       return;
     }
     lyricsState.visible = !lyricsState.visible;
@@ -125,7 +125,7 @@
     lyricsState.visible
       ? "Close lyrics"
       : windowWidth < 1100
-        ? "Lyrics — window too narrow"
+        ? "Lyrics - window too narrow"
         : "Lyrics"
   );
 </script>
