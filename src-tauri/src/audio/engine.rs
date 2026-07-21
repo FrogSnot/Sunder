@@ -1052,7 +1052,7 @@ fn audio_thread(
                     }
                     let held = underrun_held_since.unwrap();
                     let cooldown_ok =
-                        last_recovery_at.map_or(true, |t| t.elapsed() >= Duration::from_secs(30));
+                        last_recovery_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(30));
                     if held.elapsed() >= Duration::from_secs(2) && cooldown_ok {
                         active_fade = None;
                         let mut ctx = RecoveryContext {
