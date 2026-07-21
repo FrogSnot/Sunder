@@ -219,7 +219,10 @@ jobs:
 
           LICENSE_SHA=$(curl -fSL "${BASE}/LICENSE" | sha256sum | awk '{print $1}')
           README_SHA=$(curl -fSL "${BASE}/README.md" | sha256sum | awk '{print $1}')
-          DEB_SHA=$(curl -fSL "${RELEASE}/sunder_${VERSION}_amd64.deb" | sha256sum | awk '{print $1}')
+          # NOTE: release asset filename uses upstream productName `Sunder`
+          # (capital S) from tauri.conf.json. Lowercase `sunder` 404s and
+          # returns an HTML error page, producing a wrong sha256.
+          DEB_SHA=$(curl -fSL "${RELEASE}/Sunder_${VERSION}_amd64.deb" | sha256sum | awk '{print $1}')
 
           sed -i "s/^sha256sums=.*/sha256sums=('${LICENSE_SHA}' '${README_SHA}' '${DEB_SHA}')/" PKGBUILD
 

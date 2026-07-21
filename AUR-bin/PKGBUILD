@@ -12,9 +12,14 @@ depends=('glibc' 'gcc-libs' 'glib2' 'webkit2gtk-4.1' 'gtk3' 'gdk-pixbuf2' 'cairo
          'libayatana-appindicator' 'librsvg' 'libsoup3' 'hicolor-icon-theme' 'yt-dlp' 'ffmpeg')
 provides=('sunder')
 conflicts=('sunder')
+# NOTE: GitHub release assets use the upstream productName (capital S
+# `Sunder`) from tauri.conf.json, NOT pkgname-stripped lowercase. The
+# previous version had `${pkgname%-bin}` here, which expanded to
+# `sunder_…_amd64.deb`, returning 404 and producing a sha256 of the
+# GitHub 404 HTML page. AUR users then failed validity check on install.
 source=("LICENSE-$pkgver::https://raw.githubusercontent.com/${_pkgauthor}/${_pkgname}/v${pkgver}/LICENSE"
         "README-$pkgver.md::https://raw.githubusercontent.com/${_pkgauthor}/${_pkgname}/v${pkgver}/README.md"
-        "${pkgname%-bin}_${pkgver}_amd64.deb::${url}/releases/download/v${pkgver}/${pkgname%-bin}_${pkgver}_amd64.deb")
+        "${_pkgname}_${pkgver}_amd64.deb::${url}/releases/download/v${pkgver}/${_pkgname}_${pkgver}_amd64.deb")
 sha256sums=('SKIP' 'SKIP' 'SKIP')
 
 package() {
