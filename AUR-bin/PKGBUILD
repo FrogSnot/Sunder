@@ -3,7 +3,7 @@ _pkgauthor=FrogSnot
 _pkgname=Sunder
 pkgname=sunder-bin
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="A desktop YouTube music client that doesn't spy on you (prebuilt binary)"
 arch=('x86_64')
 url="https://github.com/${_pkgauthor}/${_pkgname}"
@@ -25,7 +25,17 @@ sha256sums=('SKIP' 'SKIP' 'SKIP')
 package() {
     cd "$srcdir"
 
-    tar -xzf data.tar.gz -C "$pkgdir"
+    # Auto-detect the data tarball compression. Upstream Tauri builds may
+    # emit .gz, .xz, or .zst depending on the toolchain version. bsdtar
+    # auto-detects all three from the extension/magic bytes, so we don't
+    # have to hardcode a decompression flag.
+    local data_tar
+    data_tar=$(printf '%s\n' data.tar.* | head -n1)
+    if [ -z "$data_tar" ] || [ ! -f "$data_tar" ]; then
+        error "data tarball not found in srcdir (looked for data.tar.*)"
+        return 1
+    fi
+    bsdtar -xf "$data_tar" -C "$pkgdir"
 
     install -Dm644 "LICENSE-$pkgver" "$pkgdir/usr/share/licenses/${pkgname%-bin}/LICENSE"
     install -Dm644 "README-$pkgver.md" "$pkgdir/usr/share/doc/${pkgname%-bin}/README.md"
