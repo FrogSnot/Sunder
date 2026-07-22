@@ -170,14 +170,17 @@ jobs:
         run: |
           cd AUR
           VERSION=${{ steps.get_version.outputs.VERSION }}
-          # Same logic as aur-publish-bin: bump pkgrel when re-pushing
-          # the same pkgver to invalidate AUR helper caches.
-          CURRENT_PKGVER=$(grep -oE '^pkgver=[^ ]+' PKGBUILD | head -1 | cut -d= -f2)
-          CURRENT_PKGREL=$(grep -oE '^pkgrel=[0-9]+' PKGBUILD | head -1 | cut -d= -f2)
-          if [ "$CURRENT_PKGVER" != "$VERSION" ]; then
+          # Same AUR-querying logic as aur-publish-bin (see that step).
+          AUR_VERSION=$(curl -fSL "https://aur.archlinux.org/rpc/v5/info/sunder" \
+            | grep -oE '"Version":"[^"]+"' \
+            | head -1 \
+            | sed 's/"Version":"//;s/"$//')
+          AUR_PKGVER="${AUR_VERSION%-*}"
+          AUR_PKGREL="${AUR_VERSION##*-}"
+          if [ "$AUR_PKGVER" != "$VERSION" ]; then
             NEW_PKGREL=1
           else
-            NEW_PKGREL=$((CURRENT_PKGREL + 1))
+            NEW_PKGREL=$((AUR_PKGREL + 1))
           fi
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=${NEW_PKGREL}/" PKGBUILD
@@ -220,17 +223,21 @@ jobs:
         run: |
           cd AUR-bin
           VERSION=${{ steps.get_version.outputs.VERSION }}
-          # Detect bumping the major version (first release of a new
-          # pkgver on AUR) vs re-pushing the same pkgver (cache busting
-          # case). When bumping pkgver, reset pkgrel to 1. When re-pushing
-          # the same pkgver, bump pkgrel so AUR helpers invalidate their
-          # cached PKGBUILD and pull the new sha256sums.
-          CURRENT_PKGVER=$(grep -oE '^pkgver=[^ ]+' PKGBUILD | head -1 | cut -d= -f2)
-          CURRENT_PKGREL=$(grep -oE '^pkgrel=[0-9]+' PKGBUILD | head -1 | cut -d= -f2)
-          if [ "$CURRENT_PKGVER" != "$VERSION" ]; then
+          # Query AUR for the current version so we can decide whether
+          # to reset pkgrel to 1 (first push of a new pkgver) or bump
+          # it (re-pushing same pkgver to invalidate cached helpers).
+          # Reading the local file doesn't work because the sed below
+          # would have reset it.
+          AUR_VERSION=$(curl -fSL "https://aur.archlinux.org/rpc/v5/info/sunder-bin" \
+            | grep -oE '"Version":"[^"]+"' \
+            | head -1 \
+            | sed 's/"Version":"//;s/"$//')
+          AUR_PKGVER="${AUR_VERSION%-*}"
+          AUR_PKGREL="${AUR_VERSION##*-}"
+          if [ "$AUR_PKGVER" != "$VERSION" ]; then
             NEW_PKGREL=1
           else
-            NEW_PKGREL=$((CURRENT_PKGREL + 1))
+            NEW_PKGREL=$((AUR_PKGREL + 1))
           fi
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=${NEW_PKGREL}/" PKGBUILD
