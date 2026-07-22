@@ -170,8 +170,17 @@ jobs:
         run: |
           cd AUR
           VERSION=${{ steps.get_version.outputs.VERSION }}
+          # Same logic as aur-publish-bin: bump pkgrel when re-pushing
+          # the same pkgver to invalidate AUR helper caches.
+          CURRENT_PKGVER=$(grep -oE '^pkgver=[^ ]+' PKGBUILD | head -1 | cut -d= -f2)
+          CURRENT_PKGREL=$(grep -oE '^pkgrel=[0-9]+' PKGBUILD | head -1 | cut -d= -f2)
+          if [ "$CURRENT_PKGVER" != "$VERSION" ]; then
+            NEW_PKGREL=1
+          else
+            NEW_PKGREL=$((CURRENT_PKGREL + 1))
+          fi
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=${NEW_PKGREL}/" PKGBUILD
 
           for i in 1 2 3 4 5; do
             SHA256=$(curl -fSL "https://github.com/FrogSnot/Sunder/archive/v${VERSION}.tar.gz" | sha256sum | awk '{print $1}')
@@ -211,8 +220,20 @@ jobs:
         run: |
           cd AUR-bin
           VERSION=${{ steps.get_version.outputs.VERSION }}
+          # Detect bumping the major version (first release of a new
+          # pkgver on AUR) vs re-pushing the same pkgver (cache busting
+          # case). When bumping pkgver, reset pkgrel to 1. When re-pushing
+          # the same pkgver, bump pkgrel so AUR helpers invalidate their
+          # cached PKGBUILD and pull the new sha256sums.
+          CURRENT_PKGVER=$(grep -oE '^pkgver=[^ ]+' PKGBUILD | head -1 | cut -d= -f2)
+          CURRENT_PKGREL=$(grep -oE '^pkgrel=[0-9]+' PKGBUILD | head -1 | cut -d= -f2)
+          if [ "$CURRENT_PKGVER" != "$VERSION" ]; then
+            NEW_PKGREL=1
+          else
+            NEW_PKGREL=$((CURRENT_PKGREL + 1))
+          fi
           sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=${NEW_PKGREL}/" PKGBUILD
 
           BASE="https://raw.githubusercontent.com/FrogSnot/Sunder/v${VERSION}"
           RELEASE="https://github.com/FrogSnot/Sunder/releases/download/v${VERSION}"
