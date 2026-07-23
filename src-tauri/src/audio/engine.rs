@@ -699,6 +699,63 @@ fn audio_thread(
                             continue;
                         }
                     }
+                    // AC3: idle re-acquire gate. After the existing NoDevice
+                    // gate above (which calls attempt_device_recovery for the
+                    // NoDevice case), the next case is "stopped/idle but no
+                    // fatal device loss", i.e. _stream is None because the
+                    // user pressed Stop or natural end-of-track fired. Reopen
+                    // a fresh OutputStream here so the loader spawn at :750
+                    // has a valid paired owner+handle. The order of writes
+                    // mirrors the paired invariant at :354-355. On failure we
+                    // transition to NoDevice with the write-guard atomic
+                    // guard at :325-332 and emit audio-device-lost once.
+                    if _stream.is_none() {
+                        let st_now = state.read().unwrap().clone();
+                        if st_now != PlaybackState::NoDevice {
+                            match OutputStream::try_default() {
+                                Ok((new_stream, new_stream_handle)) => {
+                                    _stream = Some(new_stream);
+                                    stream_handle = Some(new_stream_handle.clone());
+                                }
+                                Err(e) => {
+                                    let should_emit = {
+                                        let mut guard = state.write().unwrap();
+                                        let was_no_device = *guard == PlaybackState::NoDevice;
+                                        if !was_no_device {
+                                            *guard = PlaybackState::NoDevice;
+                                        }
+                                        !was_no_device
+                                    };
+                                    emit_state(
+                                        &app,
+                                        &state,
+                                        &position_ms,
+                                        &duration_ms,
+                                        &volume,
+                                        &speed,
+                                    );
+                                    if should_emit {
+                                        let _ = app.emit(
+                                            "audio-device-lost",
+                                            serde_json::json!({
+                                                "device_name": None::<String>,
+                                                "error": e.to_string(),
+                                                "video_id": video_id.clone(),
+                                            }),
+                                        );
+                                    }
+                                    let _ = app.emit(
+                                        "playback-error",
+                                        serde_json::json!({
+                                            "video_id": video_id.clone(),
+                                            "error": format!("audio device unavailable: {e}"),
+                                        }),
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     active_fade = None;
                     if let Some(s) = sink.take() {
                         let start_vol = s.volume();
@@ -912,7 +969,16 @@ fn audio_thread(
                         }
                         s.stop();
                     }
-                    *state.write().unwrap() = PlaybackState::Stopped;
+                    // AC1: drop the cpal OutputStream so the ALSA PCM FD is
+                    // released while Sunder is idle. The paired stream_handle
+                    // is cleared in lockstep so the next Play re-acquires both
+                    // atomically (mirrors the paired write-through at :354-355).
+                    drop(_stream.take());
+                    stream_handle = None;
+                    // AC1: state transitions to Idle so the frontend's
+                    // togglePlay (Player.svelte:20) routes the next click to
+                    // playTrack rather than the (no-op) resume arm.
+                    *state.write().unwrap() = PlaybackState::Idle;
                     active_id = None;
                     epoch_start = None;
                     epoch_source_ms = 0;
@@ -932,6 +998,12 @@ fn audio_thread(
                                 s.set_volume(v);
                             }
                         }
+                    } else {
+                        // AC6: volume preference still persists above; sink
+                        // is just absent so there is nothing to apply to. The
+                        // next Prepared handler at :824-829 will pick up the
+                        // stored volume. Log once per command for diagnostics.
+                        eprintln!("[sunder] SetVolume({v}) received with no active stream; preference stored for next track");
                     }
                     #[cfg(target_os = "linux")]
                     if let Some(ref mut c) = controls {
@@ -971,6 +1043,12 @@ fn audio_thread(
                             }
                             position_ms.store(target, Ordering::Release);
                         }
+                    } else {
+                        // AC6: no active stream to seek within. The frontend
+                        // can issue a Seek before Play (e.g. UI scrubbing the
+                        // progress bar of an unloaded track); we silently
+                        // ignore it without panicking.
+                        eprintln!("[sunder] Seek({secs}) received with no active stream; ignored");
                     }
                 }
                 AudioCommand::UpdateMetadata {
@@ -1014,6 +1092,12 @@ fn audio_thread(
                         }
                         epoch_speed = clamped;
                         sk.set_speed(clamped);
+                    } else {
+                        // AC6: speed preference still persists above; sink
+                        // is just absent so there is nothing to apply to. The
+                        // next Prepared handler at :828-829 reads *speed and
+                        // applies it to the new sink. Log once per command.
+                        eprintln!("[sunder] SetSpeed({clamped}) received with no active stream; preference stored for next track");
                     }
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
                 }
@@ -1199,6 +1283,14 @@ fn audio_thread(
             if let Some(s) = sink.take() {
                 s.stop();
             }
+            // AC2: natural end-of-track drops the cpal OutputStream so the
+            // ALSA PCM FD is released while Sunder is idle. The paired
+            // stream_handle is cleared in lockstep so the next Play
+            // re-acquires both atomically (mirrors the paired write-through
+            // at :354-355). Unconditional (outside the sink's Some-take)
+            // so a None-sink still releases the stream defensively.
+            drop(_stream.take());
+            stream_handle = None;
             active_fade = None;
             *state.write().unwrap() = PlaybackState::Idle;
             active_id = None;
