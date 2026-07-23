@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 use std::io::{self, BufRead, Read};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -92,7 +93,7 @@ impl AudioHandle {
         let current_session_clone = current_session.clone();
         let tx_clone = tx.clone();
 
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .name("sunder-audio".into())
             .spawn(move || {
                 audio_thread(
@@ -109,7 +110,15 @@ impl AudioHandle {
                     hwnd,
                 );
             })
-            .expect("failed to spawn audio thread");
+        {
+            eprintln!("[sunder] FATAL: failed to spawn audio thread: {e}");
+            let _ = app.emit(
+                "audio-thread-failed",
+                serde_json::json!({
+                    "error": e.to_string(),
+                }),
+            );
+        }
         handle
     }
 
@@ -370,39 +379,78 @@ fn rebuild_stream_and_replay(
     let state_clone = ctx.state.clone();
     let eq_settings_clone = ctx.eq_settings.clone();
     let session_clone = ctx.current_session.clone();
-    let tx_clone = ctx.tx.clone();
+    let tx_in = ctx.tx.clone();
+    let tx_for_err = ctx.tx.clone();
     let id_for_thread = id.clone();
-    std::thread::spawn(move || {
-        match start_streaming(
-            &id_for_thread,
-            &state_clone,
-            &new_stream_handle,
-            &eq_settings_clone,
-            &app_clone,
-            &session_clone,
-            snapshot_session,
-        ) {
-            Ok(new_sink) => {
-                let _ = tx_clone.send(AudioCommand::Prepared {
+    let id_for_err = id.clone();
+    let panic_tx = tx_in.clone();
+    let panic_video_id = id_for_thread.clone();
+    let rebuild_thread = std::thread::Builder::new()
+        .name(format!("sunder-rebuild-{snapshot_session}"))
+        .spawn(move || {
+            // Mirror the Play loader Play loader body semantics at engine.rs:731-775:
+            // wrap the body in catch_unwind so an unwind panic in start_streaming
+            // (or anything it calls such as EqSource::new, the bufread stdout
+            // parser, or rodio decoder internals) converts to the same LoadFailed
+            // terminal signal rather than silently killing the worker. The release
+            // profile uses panic = "abort" (Cargo.toml:38), so this catch_unwind
+            // only fires in debug/unwind builds; the release equivalent is
+            // process abort, which is the same outcome as the Play loader.
+            let worker_result = catch_unwind(AssertUnwindSafe(|| {
+                match start_streaming(
+                    &id_for_thread,
+                    &state_clone,
+                    &new_stream_handle,
+                    &eq_settings_clone,
+                    &app_clone,
+                    &session_clone,
+                    snapshot_session,
+                ) {
+                    Ok(new_sink) => {
+                        let _ = tx_in.send(AudioCommand::Prepared {
+                            session_id: snapshot_session,
+                            sink: new_sink,
+                            duration_ms: replay_dur,
+                            resume_ms: snapshot_pos_ms,
+                        });
+                    }
+                    Err(e) => {
+                        // Surface async failure via the same LoadFailed arm the
+                        // Play command uses at engine.rs:612-617. The LoadFailed
+                        // arm sets state=Idle + active_id=None + emits playback-error.
+                        eprintln!("[sunder] rebuild_stream replay failed: {e}");
+                        let _ = tx_in.send(AudioCommand::LoadFailed {
+                            session_id: snapshot_session,
+                            video_id: id_for_thread,
+                            error: format!("underrun recovery: {e}"),
+                        });
+                    }
+                }
+            }));
+            if worker_result.is_err() {
+                eprintln!(
+                    "[sunder] rebuild streaming worker panicked for {panic_video_id:?}"
+                );
+                let _ = panic_tx.send(AudioCommand::LoadFailed {
                     session_id: snapshot_session,
-                    sink: new_sink,
-                    duration_ms: replay_dur,
-                    resume_ms: snapshot_pos_ms,
+                    video_id: panic_video_id,
+                    error: "rebuild streaming worker panicked".to_string(),
                 });
             }
-            Err(e) => {
-                // Surface async failure via the same LoadFailed arm the
-                // Play command uses at engine.rs:612-617. The LoadFailed
-                // arm sets state=Idle + active_id=None + emits playback-error.
-                eprintln!("[sunder] rebuild_stream replay failed: {e}");
-                let _ = tx_clone.send(AudioCommand::LoadFailed {
-                    session_id: snapshot_session,
-                    video_id: id_for_thread,
-                    error: format!("underrun recovery: {e}"),
-                });
-            }
-        }
-    });
+        });
+    if let Err(e) = rebuild_thread {
+        // OS refused the spawn (resource exhaustion). Don't abort the process;
+        // surface through the same LoadFailed terminal signal the main loop
+        // already handles. The rebuild helper still returns ReplayScheduled so
+        // the caller treats the rebuild itself as successful; the LoadFailed
+        // arm transitions state=Idle, clears active_id, and emits playback-error.
+        eprintln!("[sunder] failed to spawn rebuild loader thread: {e}");
+        let _ = tx_for_err.send(AudioCommand::LoadFailed {
+            session_id: snapshot_session,
+            video_id: id_for_err,
+            error: format!("failed to spawn rebuild loader: {e}"),
+        });
+    }
     RebuildOutcome::ReplayScheduled
 }
 
@@ -692,40 +740,75 @@ fn audio_thread(
                     };
                     let eq_settings_clone = eq_settings.clone();
                     let tx_clone = tx.clone();
+                    let tx_for_spawn_err = tx.clone();
                     let video_id_clone = video_id.clone();
+                    let video_id_for_spawn_err = video_id.clone();
                     let session_clone = current_session.clone();
+                    let panic_tx = tx_clone.clone();
+                    let panic_video_id = video_id_clone.clone();
 
-                    std::thread::spawn(move || {
-                        // Early exit if session was already superseded (rapid skip)
-                        if session_clone.load(Ordering::SeqCst) != session_id {
-                            return;
-                        }
-                        match start_streaming(
-                            &video_id_clone,
-                            &state_clone,
-                            &stream_handle_clone,
-                            &eq_settings_clone,
-                            &app_clone,
-                            &session_clone,
+                    let loader_thread = std::thread::Builder::new()
+                        .name(format!("sunder-loader-{session_id}"))
+                        .spawn(move || {
+                            let worker_result = catch_unwind(AssertUnwindSafe(|| {
+                                // This is the short-lived loader thread, not the
+                                // long-lived audio_thread. In unwind builds,
+                                // convert a panic into the same terminal signal
+                                // as an ordinary start_streaming error.
+                                if session_clone.load(Ordering::SeqCst) != session_id {
+                                    return;
+                                }
+                                match start_streaming(
+                                    &video_id_clone,
+                                    &state_clone,
+                                    &stream_handle_clone,
+                                    &eq_settings_clone,
+                                    &app_clone,
+                                    &session_clone,
+                                    session_id,
+                                ) {
+                                    Ok(new_sink) => {
+                                        let _ = tx_clone.send(AudioCommand::Prepared {
+                                            session_id,
+                                            sink: new_sink,
+                                            duration_ms: dur,
+                                            resume_ms: 0,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = tx_clone.send(AudioCommand::LoadFailed {
+                                            session_id,
+                                            video_id: video_id_clone,
+                                            error: e.to_string(),
+                                        });
+                                    }
+                                }
+                            }));
+                            if worker_result.is_err() {
+                                eprintln!(
+                                    "[sunder] audio streaming worker panicked for {panic_video_id:?}"
+                                );
+                                let _ = panic_tx.send(AudioCommand::LoadFailed {
+                                    session_id,
+                                    video_id: panic_video_id,
+                                    error: "audio streaming worker panicked".to_string(),
+                                });
+                            }
+                        });
+                    if let Err(e) = loader_thread {
+                        // OS refused the spawn (resource exhaustion). Don't
+                        // abort; surface through the same LoadFailed terminal
+                        // signal the main loop already handles for ordinary
+                        // start_streaming failures. Under panic=abort the
+                        // closure itself would also abort, so this branch is
+                        // the only process-survival path for the spawn failure.
+                        eprintln!("[sunder] failed to spawn loader thread: {e}");
+                        let _ = tx_for_spawn_err.send(AudioCommand::LoadFailed {
                             session_id,
-                        ) {
-                            Ok(new_sink) => {
-                                let _ = tx_clone.send(AudioCommand::Prepared {
-                                    session_id,
-                                    sink: new_sink,
-                                    duration_ms: dur,
-                                    resume_ms: 0,
-                                });
-                            }
-                            Err(e) => {
-                                let _ = tx_clone.send(AudioCommand::LoadFailed {
-                                    session_id,
-                                    video_id: video_id_clone,
-                                    error: e.to_string(),
-                                });
-                            }
-                        }
-                    });
+                            video_id: video_id_for_spawn_err,
+                            error: format!("failed to spawn loader: {e}"),
+                        });
+                    }
                 }
                 AudioCommand::Prepared {
                     session_id,
@@ -862,7 +945,19 @@ fn audio_thread(
                         // so we pre-divide to get the correct source-time seek position.
                         let source_secs = secs.max(0.0);
                         let seek_secs = source_secs / epoch_speed as f64;
-                        let d = Duration::from_secs_f64(seek_secs);
+                        // try_from_secs_f64 returns Err on NaN, +Inf, or any
+                        // value outside Duration's representable range. The
+                        // command input is an arbitrary deserialized f64 that
+                        // can come from JSON/Tauri IPC, so an out-of-range
+                        // value (e.g. 1e300) is reachable. Continue on Err
+                        // rather than aborting under panic = "abort".
+                        let d = match Duration::try_from_secs_f64(seek_secs) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                eprintln!("[sunder] seek conversion failed: {e}");
+                                continue;
+                            }
+                        };
                         if let Err(e) = s.try_seek(d) {
                             eprintln!("[sunder] seek failed: {e}");
                         } else {

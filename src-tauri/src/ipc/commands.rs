@@ -23,6 +23,23 @@ use crate::downloads::DownloadManager;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
 
+/// Acquire a write guard on the eq settings, recovering from a poisoned lock
+/// by returning the inner guard despite the poison flag. In a
+/// `panic = "unwind"` build, a panic on the IPC handler thread while
+/// `set_eq_gains` or `set_eq_enabled` holds this write lock could poison it;
+/// the next cpal callback firing `EqSource::refresh` would otherwise unwrap a
+/// `PoisonError`. The release profile uses `panic = "abort"`: the first panic
+/// terminates the process before poisoning, so this is defense in depth for
+/// debug/unwind builds and a future migration, not cpal-internal recovery.
+/// The audio thread is the sole writer for state, volume, and speed, while
+/// IPC reads those separate locks. The EQ lock's relevant direction is IPC
+/// write to cpal callback read. See `audio::equalizer::read_eq_recovered`.
+fn write_eq_recovered(
+    lock: &std::sync::Arc<std::sync::RwLock<crate::audio::equalizer::EqSettings>>,
+) -> std::sync::RwLockWriteGuard<'_, crate::audio::equalizer::EqSettings> {
+    lock.write().unwrap_or_else(|p| p.into_inner())
+}
+
 #[tauri::command]
 pub async fn search(
     query: String,
@@ -199,19 +216,19 @@ pub async fn set_eq_gains(gains: Vec<f32>, audio: State<'_, AudioHandle>) -> Res
     for (i, &g) in gains.iter().enumerate() {
         arr[i] = g.clamp(-12.0, 12.0);
     }
-    audio.eq_settings.write().unwrap().gains = arr;
+    write_eq_recovered(&audio.eq_settings).gains = arr;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn set_eq_enabled(enabled: bool, audio: State<'_, AudioHandle>) -> Result<(), String> {
-    audio.eq_settings.write().unwrap().enabled = enabled;
+    write_eq_recovered(&audio.eq_settings).enabled = enabled;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_eq_settings(audio: State<'_, AudioHandle>) -> Result<serde_json::Value, String> {
-    let s = audio.eq_settings.read().unwrap();
+    let s = crate::audio::equalizer::read_eq_recovered(&audio.eq_settings);
     Ok(serde_json::json!({
         "enabled": s.enabled,
         "gains": s.gains.to_vec(),

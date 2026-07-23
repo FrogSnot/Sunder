@@ -1,8 +1,26 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use rodio::Source;
 
 pub const BAND_COUNT: usize = 10;
+
+/// Acquire a read guard on the eq settings, recovering from a poisoned lock
+/// by returning the inner (possibly partially-mutated) state. In a
+/// `panic = "unwind"` build, a panic in an IPC writer such as `set_eq_gains`
+/// or `set_eq_enabled` can poison this lock; the next cpal callback in
+/// `EqSource::refresh` can then recover the guard instead of panicking on a
+/// `PoisonError`. The release profile sets `panic = "abort"` in Cargo.toml,
+/// so its first panic terminates the process before any lock is poisoned.
+/// This helper is defense in depth for debug/unwind builds or a future
+/// release-profile migration. It cannot contain panics originating in cpal
+/// or rodio internals. The audio thread is the sole writer for playback
+/// state, volume, and speed, while IPC reads those separate locks. The EQ
+/// lock's relevant direction is IPC write to cpal callback read.
+pub(crate) fn read_eq_recovered<'a>(
+    lock: &'a Arc<RwLock<EqSettings>>,
+) -> RwLockReadGuard<'a, EqSettings> {
+    lock.read().unwrap_or_else(|p| p.into_inner())
+}
 
 const BAND_FREQUENCIES: [f32; BAND_COUNT] = [
     32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
@@ -105,7 +123,7 @@ impl<S: Source<Item = f32>> EqSource<S> {
             .map(|&f| peaking_eq(f, 0.0, Q_FACTOR, sample_rate as f32))
             .collect();
 
-        let enabled = settings.read().unwrap().enabled;
+        let enabled = read_eq_recovered(&settings).enabled;
 
         Self {
             inner,
@@ -123,7 +141,7 @@ impl<S: Source<Item = f32>> EqSource<S> {
     }
 
     fn refresh(&mut self) {
-        let s = self.settings.read().unwrap();
+        let s = read_eq_recovered(&self.settings);
         self.enabled = s.enabled;
         if s.gains != self.cached_gains {
             self.cached_gains = s.gains;
@@ -140,7 +158,18 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        // A zero-channel source cannot advance the interleaving cursor. Keep
+        // the runtime length check so a future construction change cannot
+        // turn the state lookup below into an out-of-bounds panic.
+        if self.channels == 0 || self.states.len() != self.channels as usize {
+            return None;
+        }
+
         let ch = self.channel_idx as usize;
+        if ch >= self.states.len() {
+            return None;
+        }
+
         let sample = self.inner.next()?;
         self.channel_idx = (self.channel_idx + 1) % self.channels;
 
@@ -148,6 +177,7 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
             self.refresh();
         }
 
+        let sample = if sample.is_nan() { 0.0 } else { sample };
         let mut out = if self.enabled {
             let mut v = sample as f64;
             for (i, state) in self.states[ch].iter_mut().enumerate() {
