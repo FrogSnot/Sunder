@@ -80,8 +80,7 @@ fn install_stderr_filter() {
                                     if libc::write(orig_fd, ptr as *const _, len) < 0 {
                                         // best-effort; nothing else we can do
                                     }
-                                    let nl: [u8; 1] = [b'\n'];
-                                    let _ = libc::write(orig_fd, nl.as_ptr() as *const _, 1);
+                                    let _ = libc::write(orig_fd, b"\n".as_ptr().cast(), 1);
                                 }
                             }
                             buffer.clear();
