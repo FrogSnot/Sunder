@@ -362,9 +362,13 @@ fn rebuild_stream_and_replay(
         ctx.speed,
     );
     if !was_playing {
+        drop(ctx._stream.take());
+        *ctx.stream_handle = None;
         return RebuildOutcome::ReplayScheduled;
     }
     let Some(id) = replay_id else {
+        drop(ctx._stream.take());
+        *ctx.stream_handle = None;
         return RebuildOutcome::ReplaySkipped;
     };
     let cache_dir = std::env::temp_dir().join("sunder");
@@ -373,6 +377,8 @@ fn rebuild_stream_and_replay(
         crate::downloads::DownloadManager::dir_for(ctx.app).join(format!("{id}.mp3"));
     if !expected_path.exists() && !download_path.exists() {
         eprintln!("[sunder] rebuild_stream: cache cold for '{id}', skipping replay");
+        drop(ctx._stream.take());
+        *ctx.stream_handle = None;
         return RebuildOutcome::CacheCold;
     }
     let app_clone = ctx.app.clone();
@@ -428,9 +434,7 @@ fn rebuild_stream_and_replay(
                 }
             }));
             if worker_result.is_err() {
-                eprintln!(
-                    "[sunder] rebuild streaming worker panicked for {panic_video_id:?}"
-                );
+                eprintln!("[sunder] rebuild streaming worker panicked for {panic_video_id:?}");
                 let _ = panic_tx.send(AudioCommand::LoadFailed {
                     session_id: snapshot_session,
                     video_id: panic_video_id,
@@ -528,36 +532,14 @@ fn audio_thread(
     current_session: Arc<AtomicUsize>,
     hwnd: Option<RawHwnd>,
 ) {
-    // Open the system default output once at startup. If no device exists,
-    // retain the audio thread so retry_audio_device can recover later.
+    // OutputStream is a terminal-state resource: only Playing, Loading, and
+    // Paused may own it. Idle and NoDevice must keep the owner/handle pair
+    // absent so the ALSA PCM is released while the app remains alive.
     let (init_stream, init_handle): (Option<OutputStream>, Option<rodio::OutputStreamHandle>) =
-        match OutputStream::try_default() {
-            Ok((stream, handle)) => (Some(stream), Some(handle)),
-            Err(e) => {
-                eprintln!("[sunder] no audio output device at startup: {e}");
-                (None, None)
-            }
-        };
+        (None, None);
     let mut _stream: Option<OutputStream> = init_stream;
     let mut stream_handle: Option<rodio::OutputStreamHandle> = init_handle;
-    if _stream.is_none() {
-        eprintln!(
-            "[sunder] audio thread started, output device unavailable (no_device state); \
-             retry via retry_audio_device IPC"
-        );
-        let _ = app.emit(
-            "audio-device-lost",
-            serde_json::json!({
-                "device_name": None::<String>,
-                "error": "no audio output device at startup",
-                "video_id": None::<String>,
-            }),
-        );
-        *state.write().unwrap() = PlaybackState::NoDevice;
-        emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
-    } else {
-        eprintln!("[sunder] audio thread started, output device ready");
-    }
+    eprintln!("[sunder] audio thread started idle; output will be acquired on Play");
     let mut active_id: Option<String> = None;
     let mut underrun_held_since: Option<Instant> = None;
     let mut last_recovery_at: Option<Instant> = None;
@@ -878,6 +860,14 @@ fn audio_thread(
                             s.stop();
                         }
 
+                        // A Prepared message is session-fenced. If a current
+                        // session has no owner, it is a terminal state and this
+                        // sink must be discarded rather than installed.
+                        if _stream.is_none() || stream_handle.is_none() {
+                            drop(new_sink);
+                            continue;
+                        }
+
                         new_sink.set_volume(0.0);
 
                         duration_ms.store(dur, Ordering::Release);
@@ -909,6 +899,8 @@ fn audio_thread(
                     if session_id == current_session.load(Ordering::SeqCst) {
                         *state.write().unwrap() = PlaybackState::Idle;
                         active_id = None;
+                        drop(_stream.take());
+                        stream_handle = None;
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
                         let _ = app.emit(
                             "playback-error",
