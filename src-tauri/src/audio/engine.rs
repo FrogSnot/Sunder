@@ -161,6 +161,56 @@ fn current_source_pos_ms(
     })
 }
 
+/// Acquire an `OutputStream` that honors the user's PulseAudio/PipeWire
+/// pavucontrol default sink on Linux.
+///
+/// Background: cpal 0.15's Linux backend is ALSA-only and its
+/// `default_output_device()` returns a `Device { name: "default" }`.
+/// alsa-lib on systems that ship both `99-pipewire-default.conf` and
+/// `99-pulseaudio-default.conf` may resolve "default" to raw card 0
+/// instead of the PulseAudio-routed `pcm.!default` override, bypassing
+/// the user's per-session default-sink setting. The alsa-lib "pulse"
+/// PCM (exposed by `alsa-plugins` as `pcm.pulse { type pulse }`) routes
+/// audio through PulseAudio, which honors `pactl get-default-sink` and
+/// therefore the sink the user marked in pavucontrol.
+///
+/// Falls through to `OutputStream::try_default()` when the "pulse" device
+/// is not enumerated (no `alsa-plugins`, no PulseAudio), the open fails,
+/// or on non-Linux platforms — preserving the previous behavior.
+#[cfg(target_os = "linux")]
+fn try_output_stream_pulse_first()
+    -> Result<(OutputStream, rodio::OutputStreamHandle), String> {
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+    let host = rodio::cpal::default_host();
+    if let Ok(devices) = host.output_devices() {
+        if let Some(pulse_dev) = devices
+            .into_iter()
+            .find(|d| d.name().ok().as_deref() == Some("pulse"))
+        {
+            match OutputStream::try_from_device(&pulse_dev) {
+                Ok(stream) => {
+                    eprintln!(
+                        "[sunder] audio: routing via PulseAudio ALSA 'pulse' PCM (pavucontrol default sink)"
+                    );
+                    return Ok(stream);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[sunder] audio: PulseAudio 'pulse' PCM open failed ({e}); falling back to cpal default"
+                    );
+                }
+            }
+        }
+    }
+    OutputStream::try_default().map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn try_output_stream_pulse_first()
+    -> Result<(OutputStream, rodio::OutputStreamHandle), String> {
+    OutputStream::try_default().map_err(|e| e.to_string())
+}
+
 /// Fade structures for inline processing. Module-scoped so `RecoveryContext`
 /// (and any future helper) can hold an `&mut Option<ActiveFade>`.
 enum FadeAction {
@@ -311,7 +361,7 @@ fn rebuild_stream_and_replay(
     }
     drop(ctx._stream.take());
     let new_stream_result: Result<(OutputStream, rodio::OutputStreamHandle), String> =
-        OutputStream::try_default().map_err(|e| e.to_string());
+        try_output_stream_pulse_first();
     let (new_stream, new_stream_handle) = match new_stream_result {
         Ok(s) => s,
         Err(e) => {
@@ -694,7 +744,7 @@ fn audio_thread(
                     if _stream.is_none() {
                         let st_now = state.read().unwrap().clone();
                         if st_now != PlaybackState::NoDevice {
-                            match OutputStream::try_default() {
+                            match try_output_stream_pulse_first() {
                                 Ok((new_stream, new_stream_handle)) => {
                                     _stream = Some(new_stream);
                                     stream_handle = Some(new_stream_handle.clone());

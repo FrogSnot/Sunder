@@ -145,6 +145,17 @@ brew install yt-dlp ffmpeg
 scoop install yt-dlp ffmpeg
 ```
 
+For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
+
+```bash
+# Arch
+sudo pacman -S alsa-plugins
+# Ubuntu/Debian
+sudo apt install alsa-plugins
+```
+
+PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA — the first enumerated card, which may not be the sink you've marked as default in pavucontrol.
+
 ## Tech Stack
 
 | Layer | Technology | Why |
