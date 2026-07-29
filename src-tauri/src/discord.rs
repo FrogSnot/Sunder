@@ -161,6 +161,11 @@ fn run_loop(rx: mpsc::Receiver<PresenceCommand>, enabled: Arc<RwLock<bool>>) {
 fn connect() -> Option<IpcStream> {
     use std::time::Duration;
 
+    // Discord-compatible clients use different IPC socket filename prefixes.
+    // Standard Discord: "discord-ipc-". Vesktop (Vencord-based): "vesktop-ipc-".
+    // Try each prefix per directory; first successful connect wins.
+    const PREFIXES: &[&str] = &["discord-ipc-", "vesktop-ipc-"];
+
     let base_dirs: Vec<String> = [
         std::env::var("XDG_RUNTIME_DIR").ok(),
         std::env::var("TMPDIR").ok(),
@@ -170,19 +175,23 @@ fn connect() -> Option<IpcStream> {
     .flatten()
     .collect();
 
-    // Also check Flatpak and Snap subdirectories
+    // Also check Flatpak and Snap subdirectories for both Discord and Vesktop.
     let mut dirs = base_dirs.clone();
     if let Some(xdg) = base_dirs.first() {
         dirs.push(format!("{xdg}/app/com.discordapp.Discord"));
         dirs.push(format!("{xdg}/snap.discord"));
+        dirs.push(format!("{xdg}/app/dev.vencord.vesktop"));
+        dirs.push(format!("{xdg}/snap.vesktop"));
     }
 
     for dir in &dirs {
-        for i in 0..10 {
-            let path = format!("{dir}/discord-ipc-{i}");
-            if let Ok(s) = IpcStream::connect(&path) {
-                s.set_read_timeout(Some(Duration::from_secs(5))).ok();
-                return Some(s);
+        for prefix in PREFIXES {
+            for i in 0..10 {
+                let path = format!("{dir}/{prefix}{i}");
+                if let Ok(s) = IpcStream::connect(&path) {
+                    s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+                    return Some(s);
+                }
             }
         }
     }
@@ -230,7 +239,7 @@ fn send_activity(
     s: &mut IpcStream,
     title: &str,
     artist: &str,
-    _thumb: &str,
+    thumb: &str,
     paused: bool,
     nonce: u64,
 ) -> std::io::Result<()> {
@@ -239,6 +248,7 @@ fn send_activity(
     let raw_title = if title.is_empty() { "Unknown" } else { title };
     let t = esc(raw_title);
     let a = esc(artist);
+    // One unobtrusive "using sunder" mention, on the artist line only.
     let state = if paused {
         "Paused".into()
     } else if artist.is_empty() {
@@ -255,12 +265,30 @@ fn send_activity(
             .as_secs();
         format!(r#","timestamps":{{"start":{now}}}"#)
     };
-    // type:2 = Listening. Discord renders this as "Listening to Sunder" with the
-    // app's uploaded icon. We intentionally omit `assets.large_image` because
-    // Discord rejects activities with arbitrary external image URLs unless they
-    // are pre-registered via the External Assets API.
+    // Discord accepts direct HTTPS URLs in `large_image` per the current
+    // schema ("To use an external image via media proxy, specify the URL as
+    // the field's value when sending" — Discord proxies and re-emits as
+    // `mp:image_id` over the gateway). No pre-upload, bot, or Developer
+    // Portal asset required for large_image. Source:
+    // https://discord.com/developers/docs/events/gateway-events#activity-object-activity-asset-image
+    //
+    // Per-track behavior: use the YouTube thumbnail when present; fall back
+    // to the repo's icon.png (raw.githubusercontent.com serves the file
+    // directly) so the activity still shows the Sunder logo when the track
+    // metadata lacks a thumbnail.
+    let image_url = if !thumb.is_empty() {
+        thumb.to_string()
+    } else {
+        "https://raw.githubusercontent.com/FrogSnot/Sunder/main/src-tauri/icons/icon.png".to_string()
+    };
+    // small_image is the uploaded `sunder-logo` asset (the only one we keep
+    // in the Developer Portal — track_art and sunder-mark are gone).
+    let assets = format!(
+        r#","assets":{{"large_image":"{}","small_image":"mp:sunder-logo"}}"#,
+        esc(&image_url)
+    );
     write_frame(s, 1, &format!(
-        r#"{{"cmd":"SET_ACTIVITY","args":{{"pid":{pid},"activity":{{"type":2,"details":"{t}","state":"{state}"{ts}}}}},"nonce":"{nonce}"}}"#
+        r#"{{"cmd":"SET_ACTIVITY","args":{{"pid":{pid},"activity":{{"type":2,"details":"{t}","state":"{state}"{ts}{assets}}}}},"nonce":"{nonce}"}}"#
     ))
 }
 
