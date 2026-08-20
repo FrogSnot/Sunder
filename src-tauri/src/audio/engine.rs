@@ -144,8 +144,8 @@ impl AudioHandle {
     }
 }
 
-fn ytdlp_bin() -> String {
-    std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into())
+fn ytdlp_bin(app: &tauri::AppHandle) -> String {
+    crate::extraction::ytdlp::resolve_bin_for(app)
 }
 
 /// Snapshot the current source position from the epoch tracker.
@@ -176,7 +176,7 @@ fn current_source_pos_ms(
 ///
 /// Falls through to `OutputStream::try_default()` when the "pulse" device
 /// is not enumerated (no `alsa-plugins`, no PulseAudio), the open fails,
-/// or on non-Linux platforms — preserving the previous behavior.
+/// or on non-Linux platforms, preserving the previous behavior.
 #[cfg(target_os = "linux")]
 fn try_output_stream_pulse_first()
     -> Result<(OutputStream, rodio::OutputStreamHandle), String> {
@@ -725,6 +725,7 @@ fn audio_thread(
                                 serde_json::json!({
                                     "video_id": video_id.clone(),
                                     "error": "no audio device",
+                                    "kind": "device",
                                 }),
                             );
                             emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
@@ -781,6 +782,7 @@ fn audio_thread(
                                         serde_json::json!({
                                             "video_id": video_id.clone(),
                                             "error": format!("audio device unavailable: {e}"),
+                                            "kind": "device",
                                         }),
                                     );
                                     continue;
@@ -822,6 +824,7 @@ fn audio_thread(
                             serde_json::json!({
                                 "video_id": video_id.clone(),
                                 "error": "audio device unavailable",
+                                "kind": "device",
                             }),
                         );
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
@@ -957,6 +960,7 @@ fn audio_thread(
                             serde_json::json!({
                                 "video_id": video_id,
                                 "error": error,
+                                "kind": crate::error::classify_playback_error(&error),
                             }),
                         );
                     }
@@ -1400,7 +1404,7 @@ fn start_streaming(
     session_id: usize,
 ) -> Result<Sink, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
-    let bin = ytdlp_bin();
+    let bin = ytdlp_bin(app);
 
     let cache_dir = std::env::temp_dir().join("sunder");
     std::fs::create_dir_all(&cache_dir).map_err(crate::error::AppError::Io)?;

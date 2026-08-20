@@ -267,7 +267,7 @@ fn send_activity(
     };
     // Discord accepts direct HTTPS URLs in `large_image` per the current
     // schema ("To use an external image via media proxy, specify the URL as
-    // the field's value when sending" — Discord proxies and re-emits as
+    // the field's value when sending"; Discord proxies and re-emits as
     // `mp:image_id` over the gateway). No pre-upload, bot, or Developer
     // Portal asset required for large_image. Source:
     // https://discord.com/developers/docs/events/gateway-events#activity-object-activity-asset-image
@@ -282,7 +282,7 @@ fn send_activity(
         "https://raw.githubusercontent.com/FrogSnot/Sunder/main/src-tauri/icons/icon.png".to_string()
     };
     // small_image is the uploaded `sunder-logo` asset (the only one we keep
-    // in the Developer Portal — track_art and sunder-mark are gone).
+    // in the Developer Portal; track_art and sunder-mark are gone).
     let assets = format!(
         r#","assets":{{"large_image":"{}","small_image":"mp:sunder-logo"}}"#,
         esc(&image_url)

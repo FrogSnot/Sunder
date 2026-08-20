@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -5,23 +6,38 @@ use crate::error::AppError;
 use crate::models::Track;
 
 pub struct Extractor {
-    bin: String,
+    /// App-managed yt-dlp location. Resolution happens per spawn so a
+    /// runtime update (see `ytdlp::update`) takes effect without restart.
+    managed: PathBuf,
 }
 
 impl Extractor {
-    pub fn new() -> Self {
+    pub fn new(data_dir: &std::path::Path) -> Self {
         Self {
-            bin: std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into()),
+            managed: super::ytdlp::managed_bin_path(data_dir),
         }
     }
 
+    fn bin(&self) -> String {
+        super::ytdlp::resolve_bin(Some(&self.managed))
+    }
+
     /// Search YouTube Music specifically for tracks.
+    ///
+    /// NOTE: yt-dlp has no `ytmusicsearch` special URL; that prefix was
+    /// silently unsupported and returned nothing. The supported form is the
+    /// music.youtube.com search page, which yt-dlp extracts as a playlist.
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Track>, AppError> {
-        let output = Command::new(&self.bin)
+        let output = Command::new(self.bin())
             .args([
-                &format!("ytmusicsearch{limit}:{query}"),
+                &format!(
+                    "https://music.youtube.com/search?q={}",
+                    encode_query(query)
+                ),
                 "--dump-json",
                 "--flat-playlist",
+                "--playlist-end",
+                &limit.to_string(),
                 "--no-warnings",
                 "--ignore-errors",
             ])
@@ -59,7 +75,7 @@ impl Extractor {
 
     /// Search generic YouTube (useful for remixes, covers, and obscure tracks).
     pub async fn search_youtube(&self, query: &str, limit: usize) -> Result<Vec<Track>, AppError> {
-        let output = Command::new(&self.bin)
+        let output = Command::new(self.bin())
             .args([
                 &format!("ytsearch{limit}:{query}"),
                 "--dump-json",
@@ -101,7 +117,7 @@ impl Extractor {
 
     /// Fetch metadata for a single video/track.
     pub async fn metadata(&self, video_id: &str) -> Result<Track, AppError> {
-        let output = Command::new(&self.bin)
+        let output = Command::new(self.bin())
             .args([
                 &format!("https://www.youtube.com/watch?v={video_id}"),
                 "-j",
@@ -132,7 +148,7 @@ impl Extractor {
 
     pub async fn get_subtitles(&self, video_id: &str, lang: &str) -> Result<String, AppError> {
         let tmp = std::env::temp_dir();
-        let output = Command::new(&self.bin)
+        let output = Command::new(self.bin())
             .args([
                 &format!("https://www.youtube.com/watch?v={video_id}"),
                 "--skip-download",
@@ -191,7 +207,7 @@ impl Extractor {
         &self,
         url: &str,
     ) -> Result<(String, Option<String>, Vec<Track>), AppError> {
-        let output = Command::new(&self.bin)
+        let output = Command::new(self.bin())
             .args([
                 url,
                 "--dump-json",
@@ -266,4 +282,34 @@ fn best_thumbnail(v: &serde_json::Value) -> String {
                    .replace("hqdefault", "mqdefault");
     }
     base.to_string()
+}
+
+/// Percent-encode a query value per RFC 3986 (unreserved set only).
+/// "Daft Punk & Justice" → "Daft%20Punk%20%26%20Justice". YouTube accepts
+/// %20 for spaces in the q parameter.
+fn encode_query(q: &str) -> String {
+    let mut out = String::with_capacity(q.len());
+    for b in q.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_query;
+
+    #[test]
+    fn encodes_reserved_chars_and_leaves_unreserved() {
+        assert_eq!(encode_query("daft punk"), "daft%20punk");
+        assert_eq!(encode_query("a&b=c?d/e"), "a%26b%3Dc%3Fd%2Fe");
+        assert_eq!(encode_query("AC/DC-Top_Tracks.2024~"), "AC%2FDC-Top_Tracks.2024~");
+        // Non-ASCII must not be passed through raw.
+        assert_eq!(encode_query("té"), "t%C3%A9");
+    }
 }

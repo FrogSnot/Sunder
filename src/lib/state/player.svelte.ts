@@ -20,6 +20,15 @@ class PlayerState {
   downloadStage = $state("");
   consecutiveErrors = $state(0);
   lastError = $state("");
+  /** Remedy selector from the backend: "ytdlp_blocked" | "device" | "load" */
+  errorKind = $state("");
+  /** Version of the yt-dlp that produced the current blocked-stream error */
+  ytdlpVersion = $state("");
+  /** "override" | "managed" | "system": where the active yt-dlp comes from */
+  ytdlpSource = $state("");
+  /** One-click update offered? (Linux + no env override; backend decides) */
+  ytdlpCanUpdate = $state(false);
+  ytdlpUpdating = $state(false);
   failedTrack = $state<Track | null>(null);
   findingAlt = $state(false);
   sleepTimerRemaining = $state<number | null>(null);
@@ -55,6 +64,9 @@ class PlayerState {
       this.downloadPercent = 0;
       this.consecutiveErrors = 0;
       this.lastError = "";
+      this.errorKind = "";
+      this.ytdlpVersion = "";
+      this.ytdlpSource = "";
       this.failedTrack = null;
       this.findingAlt = false;
     }

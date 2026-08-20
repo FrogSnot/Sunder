@@ -302,8 +302,28 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   }
 }
 
-export async function openUrl(url: string): Promise<void> {
-  await invoke("open_url", { url });
+export function openUrl(url: string): Promise<void> {
+  return invoke("open_url", { url });
+}
+
+export interface YtdlpStatus {
+  source: "override" | "managed" | "system";
+  path: string;
+  version: string | null;
+  /** One-click update offered (Linux, no env override). Gates the button. */
+  can_update: boolean;
+}
+
+export function ytdlpStatus(): Promise<YtdlpStatus> {
+  return invoke<YtdlpStatus>("ytdlp_status");
+}
+
+/**
+ * Opt-in: download the latest official yt-dlp into Sunder's app-data dir,
+ * verify it runs, and adopt it. Resolves with the new version string.
+ */
+export function updateYtdlp(): Promise<string> {
+  return invoke<string>("ytdlp_update");
 }
 
 export function initProgressListener(): () => void {
@@ -333,14 +353,31 @@ export function initProgressListener(): () => void {
     playNext().catch((e) => console.error("Failed to play next track after finish:", e));
   }).then((fn) => { unlistenFinished = fn; });
 
-  listen<{ video_id: string; error: string }>("playback-error", (event) => {
+  listen<{ video_id: string; error: string; kind?: string }>("playback-error", (event) => {
     const failedId = event.payload.video_id;
+    const kind = event.payload.kind ?? "load";
     player.lastError = event.payload.error;
-    player.consecutiveErrors++;
+    player.errorKind = kind;
     player.isBuffering = false;
     player.failedTrack = player.currentTrack;
     player.downloadStage = "error";
 
+    // Tool-level block (stale yt-dlp rejected by YouTube): every track will
+    // fail identically, so auto-skipping and the error counter are both
+    // wrong remedies. Surface the update path instead.
+    if (kind === "ytdlp_blocked") {
+      player.ytdlpVersion = "";
+      ytdlpStatus()
+        .then((s) => {
+          player.ytdlpVersion = s.version ?? "";
+          player.ytdlpSource = s.source;
+          player.ytdlpCanUpdate = s.can_update;
+        })
+        .catch(() => {});
+      return;
+    }
+
+    player.consecutiveErrors++;
     if (player.consecutiveErrors < 3 && player.hasNext) {
       setTimeout(() => {
         if (player.currentTrack?.id === failedId && !player.findingAlt) {

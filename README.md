@@ -29,6 +29,7 @@ The name says it all: to *sunder* means to split apart. We split the music from 
 - **Playback speed control** adjustable from 0.25x to 3x via a slider in the controls popup
 - **Smart error recovery** if a track fails (geo-blocked, age-gated, unavailable), a banner appears offering to find an alternative version automatically, with auto-skip fallback if ignored
 - **Retry with bypass** yt-dlp failures trigger a silent retry with `--force-ipv4` and `--geo-bypass` before giving up
+- **403-aware recovery with one-click yt-dlp update** when YouTube blocks streams because the installed yt-dlp is outdated (the most common cause of sudden 403 errors), Sunder shows exactly that, with the current yt-dlp version, and an *Update yt-dlp* button that downloads the latest official release into Sunder's own data directory (verified and atomically installed, no root needed), then retries the track automatically. All network fetches happen only on that explicit click. The one-click update is Linux-only; on Windows/macOS (or when `SUNDER_YTDLP_PATH` is set) the banner instead explains how to fix it, with a Retry button
 - **Non-blocking prefetch** audio is prepared in a background thread with early session checks to discard stale loads; upcoming tracks are pre-downloaded for seamless transitions
 
 ### Lyrics
@@ -131,6 +132,8 @@ Download the `.dmg` from [Releases](https://github.com/FrogSnot/Sunder/releases)
 
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [ffmpeg](https://ffmpeg.org/) must be installed and on PATH:
 
+> YouTube changes its enforcement every few weeks and older yt-dlp releases get blocked with 403 errors. When that happens, Sunder detects it and offers a one-click update that installs the latest official yt-dlp into `~/.local/share/sunder/bin/`. If you prefer the package-manager copy, keeping `yt-dlp` current via your OS updates works too. Setting `SUNDER_YTDLP_PATH` always overrides both.
+
 ```bash
 # Arch
 sudo pacman -S yt-dlp ffmpeg
@@ -154,7 +157,7 @@ sudo pacman -S alsa-plugins
 sudo apt install alsa-plugins
 ```
 
-PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA — the first enumerated card, which may not be the sink you've marked as default in pavucontrol.
+PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA, which uses the first enumerated card and may not be the sink you've marked as default in pavucontrol.
 
 ## Tech Stack
 

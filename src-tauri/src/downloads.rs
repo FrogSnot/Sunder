@@ -132,14 +132,14 @@ fn emit(app: &AppHandle, track_id: &str, status: &str, percent: f64) {
     );
 }
 
-fn ytdlp_bin() -> String {
-    std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into())
+fn ytdlp_bin(app: &AppHandle) -> String {
+    crate::extraction::ytdlp::resolve_bin_for(app)
 }
 
 /// Runs yt-dlp, streaming download progress as `track-download` events.
 /// Returns the path to the finished MP3 on success.
 async fn run_ytdlp(app: &AppHandle, dir: &Path, track_id: &str) -> Result<PathBuf, String> {
-    let bin = ytdlp_bin();
+    let bin = ytdlp_bin(app);
     let url = format!("https://www.youtube.com/watch?v={track_id}");
     let out_template = dir.join(format!("{track_id}.%(ext)s"));
     let expected_path = dir.join(format!("{track_id}.mp3"));

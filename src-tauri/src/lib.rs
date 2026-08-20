@@ -30,7 +30,7 @@ pub fn run() {
             app.manage(SearchCache::new(&data_dir).expect("failed to init database"));
 
             app.manage(AudioHandle::new(app.handle().clone()));
-            app.manage(Extractor::new());
+            app.manage(Extractor::new(&data_dir));
             app.manage(DownloadManager::new(&data_dir));
 
             let config_mgr = ConfigManager::new(&data_dir);
@@ -161,6 +161,8 @@ pub fn run() {
             ipc::commands::get_downloads_size,
             ipc::commands::get_download_sizes,
             ipc::commands::retry_audio_device,
+            ipc::commands::ytdlp_status,
+            ipc::commands::ytdlp_update,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

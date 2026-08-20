@@ -297,6 +297,7 @@ pub async fn reorder_playlist_tracks(playlist_id: i64, track_ids: Vec<String>, d
 #[tauri::command]
 pub async fn prefetch_track(
     track_id: String,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let cache_dir = std::env::temp_dir().join("sunder");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -304,7 +305,7 @@ pub async fn prefetch_track(
     if expected_path.exists() {
         return Ok(());
     }
-    let bin = std::env::var("SUNDER_YTDLP_PATH").unwrap_or_else(|_| "yt-dlp".into());
+    let bin = crate::extraction::ytdlp::resolve_bin_for(&app);
     let url = format!("https://www.youtube.com/watch?v={track_id}");
     let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
     tokio::spawn(async move {
@@ -1034,4 +1035,25 @@ pub async fn open_url(url: String) -> Result<(), String> {
 pub async fn retry_audio_device(audio: State<'_, AudioHandle>) -> Result<(), String> {
     audio.send(crate::audio::engine::AudioCommand::RetryDevice);
     Ok(())
+}
+
+/// Report which yt-dlp binary Sunder resolves right now (override / managed /
+/// system), its path, and its version. Used by the blocked-stream banner.
+#[tauri::command]
+pub async fn ytdlp_status(
+    app: tauri::AppHandle,
+) -> Result<crate::extraction::ytdlp::YtdlpStatus, String> {
+    use tauri::Manager;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(crate::extraction::ytdlp::status(&data_dir).await)
+}
+
+/// Opt-in update: download the latest official yt-dlp release into Sunder's
+/// app-data dir, smoke-test it, adopt it atomically. Only ever invoked by an
+/// explicit user click. Returns the new version string.
+#[tauri::command]
+pub async fn ytdlp_update(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    crate::extraction::ytdlp::update(&data_dir).await
 }

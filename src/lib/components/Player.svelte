@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, playPrev, search, setSpeed, setDiscordRpc } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -85,6 +85,36 @@
     player.failedTrack = null;
     player.downloadStage = "";
     player.lastError = "";
+    player.errorKind = "";
+  }
+
+  /** Replay the track that failed (after an external fix, e.g. the user
+   *  updated yt-dlp themselves via their package manager). */
+  async function retryFailed() {
+    const failed = player.failedTrack;
+    if (!failed) return;
+    player.errorKind = "";
+    await playTrack(failed);
+  }
+
+  /**
+   * The blocked-stream remedy: pull the latest official yt-dlp into
+   * Sunder's app-data (verified before adoption), then retry the exact
+   * track that failed. No restart needed; resolution is per-spawn.
+   */
+  async function updateYtdlpAndRetry() {
+    if (player.ytdlpUpdating) return;
+    player.ytdlpUpdating = true;
+    try {
+      const version = await updateYtdlp();
+      player.ytdlpVersion = version;
+      player.ytdlpUpdating = false;
+      toastState.add(`yt-dlp updated to ${version}. Retrying track`, "info", 4000);
+      await retryFailed();
+    } catch (e) {
+      player.ytdlpUpdating = false;
+      toastState.add(`yt-dlp update failed: ${e}`, "error", 8000);
+    }
   }
 
   async function toggleDiscord() {
@@ -140,20 +170,53 @@
           <div class="error-banner-left">
             <svg class="dl-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             <div class="error-banner-text">
-              <span class="error-main">Track unavailable</span>
-              {#if player.downloadStage === "finding"}
-                <span class="error-sub">Searching for alternative...</span>
-              {:else if player.downloadStage === "no-alt"}
-                <span class="error-sub">No alternative found</span>
-              {:else if player.hasNext}
-                <span class="error-sub">Auto-skipping in a few seconds</span>
+              {#if player.errorKind === "ytdlp_blocked"}
+                <span class="error-main">YouTube blocked this stream</span>
+                {#if player.ytdlpCanUpdate}
+                  <span class="error-sub">
+                    {player.ytdlpVersion ? `yt-dlp ${player.ytdlpVersion} is outdated` : "yt-dlp appears outdated"}. YouTube locks out older versions
+                  </span>
+                {:else if player.ytdlpSource === "override"}
+                  <span class="error-sub">
+                    {player.ytdlpVersion ? `yt-dlp ${player.ytdlpVersion}` : "yt-dlp"} at SUNDER_YTDLP_PATH is outdated. Update it, then retry
+                  </span>
+                {:else}
+                  <span class="error-sub">
+                    {player.ytdlpVersion ? `yt-dlp ${player.ytdlpVersion} is outdated` : "yt-dlp appears outdated"}. Update it via your package manager, then retry
+                  </span>
+                {/if}
               {:else}
-                <span class="error-sub">No more tracks in queue</span>
+                <span class="error-main">Track unavailable</span>
+                {#if player.downloadStage === "finding"}
+                  <span class="error-sub">Searching for alternative...</span>
+                {:else if player.downloadStage === "no-alt"}
+                  <span class="error-sub">No alternative found</span>
+                {:else if player.hasNext}
+                  <span class="error-sub">Auto-skipping in a few seconds</span>
+                {:else}
+                  <span class="error-sub">No more tracks in queue</span>
+                {/if}
               {/if}
             </div>
           </div>
           <div class="error-banner-actions">
-            {#if player.downloadStage === "finding"}
+            {#if player.errorKind === "ytdlp_blocked"}
+              {#if player.ytdlpCanUpdate}
+                {#if player.ytdlpUpdating}
+                  <div class="dl-spinner"></div>
+                {:else}
+                  <button class="error-btn alt-btn" onclick={updateYtdlpAndRetry}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+                    Update yt-dlp
+                  </button>
+                {/if}
+              {:else}
+                <button class="error-btn alt-btn" onclick={retryFailed}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Retry
+                </button>
+              {/if}
+            {:else if player.downloadStage === "finding"}
               <div class="dl-spinner"></div>
             {:else if player.downloadStage !== "no-alt"}
               <button class="error-btn alt-btn" onclick={findAlternative}>

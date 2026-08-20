@@ -7,5 +7,6 @@ src-tauri/target/
 *.swp
 *.swo
 .DS_Store
+.context/
 
 src-tauri/examples/bench_playback.rs

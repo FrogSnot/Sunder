@@ -466,7 +466,7 @@
         {/if}
         {#if trackFilter.trim()}
           <span class="filter-count">{filteredTracks.length} of {detailTracks.length}</span>
-          <span class="filter-hint" title="Reordering is disabled while filtering — clear the filter to reorder tracks">
+          <span class="filter-hint" title="Reordering is disabled while filtering. Clear the filter to reorder tracks">
             Reorder off
           </span>
         {/if}
@@ -489,7 +489,7 @@
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => ctxMenu.open(e, track)}
           >
-            <span class="drag-handle" aria-hidden="true" class:disabled={filterActive} title={filterActive ? "Reordering disabled while filtering — clear the filter to reorder" : "Drag to reorder"}>
+            <span class="drag-handle" aria-hidden="true" class:disabled={filterActive} title={filterActive ? "Reordering disabled while filtering. Clear the filter to reorder" : "Drag to reorder"}>
               <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
             </span>
             <span class="track-num">{originalIndex + 1}</span>
