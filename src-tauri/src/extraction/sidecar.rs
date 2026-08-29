@@ -4,6 +4,7 @@ use tokio::process::Command;
 
 use crate::error::AppError;
 use crate::models::Track;
+use crate::process::NoWindow;
 
 pub struct Extractor {
     /// App-managed yt-dlp location. Resolution happens per spawn so a
@@ -28,7 +29,7 @@ impl Extractor {
     /// silently unsupported and returned nothing. The supported form is the
     /// music.youtube.com search page, which yt-dlp extracts as a playlist.
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Track>, AppError> {
-        let output = Command::new(self.bin())
+        let output = Command::new(self.bin()).no_window()
             .args([
                 &format!(
                     "https://music.youtube.com/search?q={}",
@@ -75,7 +76,7 @@ impl Extractor {
 
     /// Search generic YouTube (useful for remixes, covers, and obscure tracks).
     pub async fn search_youtube(&self, query: &str, limit: usize) -> Result<Vec<Track>, AppError> {
-        let output = Command::new(self.bin())
+        let output = Command::new(self.bin()).no_window()
             .args([
                 &format!("ytsearch{limit}:{query}"),
                 "--dump-json",
@@ -117,7 +118,7 @@ impl Extractor {
 
     /// Fetch metadata for a single video/track.
     pub async fn metadata(&self, video_id: &str) -> Result<Track, AppError> {
-        let output = Command::new(self.bin())
+        let output = Command::new(self.bin()).no_window()
             .args([
                 &format!("https://www.youtube.com/watch?v={video_id}"),
                 "-j",
@@ -148,7 +149,7 @@ impl Extractor {
 
     pub async fn get_subtitles(&self, video_id: &str, lang: &str) -> Result<String, AppError> {
         let tmp = std::env::temp_dir();
-        let output = Command::new(self.bin())
+        let output = Command::new(self.bin()).no_window()
             .args([
                 &format!("https://www.youtube.com/watch?v={video_id}"),
                 "--skip-download",
@@ -207,7 +208,7 @@ impl Extractor {
         &self,
         url: &str,
     ) -> Result<(String, Option<String>, Vec<Track>), AppError> {
-        let output = Command::new(self.bin())
+        let output = Command::new(self.bin()).no_window()
             .args([
                 url,
                 "--dump-json",

@@ -10,6 +10,7 @@ use tokio::sync::Semaphore;
 
 use crate::db::SearchCache;
 use crate::models::Track;
+use crate::process::NoWindow;
 
 /// Maximum number of concurrent yt-dlp download processes. Keeps bulk playlist
 /// downloads from spawning hundreds of processes at once.
@@ -145,6 +146,7 @@ async fn run_ytdlp(app: &AppHandle, dir: &Path, track_id: &str) -> Result<PathBu
     let expected_path = dir.join(format!("{track_id}.mp3"));
 
     let mut child = Command::new(&bin)
+        .no_window()
         .args([
             url.as_str(),
             "--extract-audio",

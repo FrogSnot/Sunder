@@ -10,6 +10,8 @@ use rodio::{Decoder, OutputStream, Sink, Source};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use tauri::{Emitter, Manager};
 
+use crate::process::NoWindow;
+
 /// Wrapper to send a raw HWND pointer across threads.
 /// SAFETY: The HWND outlives the audio thread (it's the main window).
 struct RawHwnd(*mut c_void);
@@ -1469,6 +1471,7 @@ fn start_streaming(
             }
 
             let mut child = match Command::new(&bin)
+                .no_window()
                 .args(&args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::process::NoWindow;
+
 /// The one and only download source: official repo, official release asset
 /// (the *nix Python zipapp, which is the reason the updater is Linux-gated).
 pub const RELEASE_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
@@ -74,6 +76,7 @@ pub fn resolve_bin_for(app: &tauri::AppHandle) -> String {
 /// anything that is not a clean single line (i.e. not yt-dlp).
 pub async fn version_of(bin: &str) -> Option<String> {
     let out = tokio::process::Command::new(bin)
+        .no_window()
         .arg("--version")
         .output()
         .await

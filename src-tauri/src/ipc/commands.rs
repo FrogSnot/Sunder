@@ -22,6 +22,7 @@ use crate::db::{CachedLyrics, SearchCache};
 use crate::downloads::DownloadManager;
 use crate::extraction::Extractor;
 use crate::models::{Playlist, SearchResult, SearchSource, Track};
+use crate::process::NoWindow;
 
 /// Acquire a write guard on the eq settings, recovering from a poisoned lock
 /// by returning the inner guard despite the poison flag. In a
@@ -310,6 +311,7 @@ pub async fn prefetch_track(
     let out_template = cache_dir.join(format!("{track_id}.%(ext)s"));
     tokio::spawn(async move {
         let _ = tokio::process::Command::new(&bin)
+            .no_window()
             .args([
                 &url,
                 "--extract-audio",
@@ -1018,6 +1020,7 @@ pub async fn open_url(url: String) -> Result<(), String> {
         return Err("Unsupported platform".into());
     };
     tokio::process::Command::new(cmd)
+        .no_window()
         .args(args)
         .spawn()
         .map_err(|e| e.to_string())?;

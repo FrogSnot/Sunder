@@ -7,6 +7,7 @@ mod error;
 mod extraction;
 mod ipc;
 pub mod models;
+mod process;
 
 use tauri::{Emitter, Manager};
 use crate::config::ConfigManager;
