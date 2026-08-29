@@ -52,17 +52,17 @@ pub async fn search(
     let local = db.search_local(&query).map_err(|e| e.to_string())?;
     let local_count = local.len();
 
-    // Always search both YT Music and YouTube in parallel, then merge with local
-    let (music, youtube) = tokio::join!(
-        extractor.search(&query, limit),
-        extractor.search_youtube(&query, limit)
-    );
+    // Remote search is generic YouTube only. Its flat results carry
+    // channel/uploader/duration; the YT Music search page was dropped here
+    // (doctrine D5) because its flat entries have no artist metadata on any
+    // yt-dlp version, which filled the top of results with "Unknown artist"
+    // rows (issue #42). The YT Music page still feeds Explore (commands that
+    // call Extractor::search directly).
+    let youtube = extractor.search_youtube(&query, limit).await;
+    let youtube_err = youtube.as_ref().err().map(|e| e.to_string());
 
     let mut seen = HashSet::new();
     let mut tracks = Vec::new();
-
-    let music_err = music.as_ref().err().map(|e| e.to_string());
-    let youtube_err = youtube.as_ref().err().map(|e| e.to_string());
 
     // Local results first (priority)
     for t in local {
@@ -71,16 +71,7 @@ pub async fn search(
         }
     }
 
-    // YT Music results next
-    if let Ok(music_tracks) = music {
-        for t in music_tracks {
-            if seen.insert(t.id.clone()) {
-                tracks.push(t);
-            }
-        }
-    }
-
-    // Then YouTube results (fill gaps)
+    // Then YouTube results
     if let Ok(yt_tracks) = youtube {
         for t in yt_tracks {
             if seen.insert(t.id.clone()) {
@@ -89,11 +80,9 @@ pub async fn search(
         }
     }
 
-    // If both sources failed, propagate the error instead of returning empty results
+    // If the remote source failed and there are no results at all, propagate
+    // the error instead of returning empty results
     if tracks.is_empty() {
-        if let Some(e) = music_err {
-            return Err(e);
-        }
         if let Some(e) = youtube_err {
             return Err(e);
         }

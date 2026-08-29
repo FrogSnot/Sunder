@@ -28,6 +28,9 @@ impl Extractor {
     /// NOTE: yt-dlp has no `ytmusicsearch` special URL; that prefix was
     /// silently unsupported and returned nothing. The supported form is the
     /// music.youtube.com search page, which yt-dlp extracts as a playlist.
+    /// Used by the Explore page seeds only: the user-facing search command
+    /// deliberately does NOT call this, because flat entries from this page
+    /// carry no artist metadata (doctrine D5, issue #42).
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<Track>, AppError> {
         let output = Command::new(self.bin()).no_window()
             .args([
@@ -53,25 +56,7 @@ impl Extractor {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let tracks: Vec<Track> = stdout
-            .lines()
-            .filter_map(|line| {
-                let v: serde_json::Value = serde_json::from_str(line).ok()?;
-                Some(Track {
-                    id: v["id"].as_str()?.to_string(),
-                    title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-                    artist: v["channel"].as_str()
-                        .or_else(|| v["uploader"].as_str())
-                        .unwrap_or("Unknown")
-                        .to_string(),
-                    thumbnail: best_thumbnail(&v),
-                    duration_secs: v["duration"].as_f64().unwrap_or(0.0),
-                    stream_url: None,
-                })
-            })
-            .collect();
-
-        Ok(tracks)
+        Ok(parse_flat_tracks(&stdout))
     }
 
     /// Search generic YouTube (useful for remixes, covers, and obscure tracks).
@@ -95,25 +80,7 @@ impl Extractor {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let tracks: Vec<Track> = stdout
-            .lines()
-            .filter_map(|line| {
-                let v: serde_json::Value = serde_json::from_str(line).ok()?;
-                Some(Track {
-                    id: v["id"].as_str()?.to_string(),
-                    title: v["title"].as_str().unwrap_or("Unknown").to_string(),
-                    artist: v["channel"].as_str()
-                        .or_else(|| v["uploader"].as_str())
-                        .unwrap_or("Unknown")
-                        .to_string(),
-                    thumbnail: best_thumbnail(&v),
-                    duration_secs: v["duration"].as_f64().unwrap_or(0.0),
-                    stream_url: None,
-                })
-            })
-            .collect();
-
-        Ok(tracks)
+        Ok(parse_flat_tracks(&stdout))
     }
 
     /// Fetch metadata for a single video/track.
@@ -260,6 +227,46 @@ impl Extractor {
     }
 }
 
+/// Parse `--dump-json --flat-playlist` output into playable tracks.
+///
+/// Flat-playlist sources (the music.youtube.com search page in particular,
+/// which feeds Explore) interleave non-video cards (albums `MPREb_…`,
+/// channels `UC…`, playlists `VL…`) with real song results, and put the
+/// cards first. Their flat JSON has no title and their ids are not video
+/// ids, so Sunder used to render them as unplayable "Unknown" entries at
+/// the top of search results (issue #42). They are dropped here.
+fn parse_flat_tracks(stdout: &str) -> Vec<Track> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let v: serde_json::Value = serde_json::from_str(line).ok()?;
+            if !is_playable_video(&v) {
+                return None;
+            }
+            Some(Track {
+                id: v["id"].as_str()?.to_string(),
+                title: v["title"].as_str().unwrap_or("Unknown").to_string(),
+                artist: v["channel"].as_str()
+                    .or_else(|| v["uploader"].as_str())
+                    .unwrap_or("Unknown")
+                    .to_string(),
+                thumbnail: best_thumbnail(&v),
+                duration_secs: v["duration"].as_f64().unwrap_or(0.0),
+                stream_url: None,
+            })
+        })
+        .collect()
+}
+
+/// A flat-playlist entry is a playable video only when it points at a watch
+/// page and carries a title. Browse cards point at `/browse/` pages, so
+/// playback (`watch?v=<id>`) could never work for them.
+fn is_playable_video(v: &serde_json::Value) -> bool {
+    let url_ok = v["url"].as_str().is_some_and(|u| u.contains("/watch"));
+    let title_ok = v["title"].as_str().is_some_and(|t| !t.trim().is_empty());
+    url_ok && title_ok
+}
+
 fn best_thumbnail(v: &serde_json::Value) -> String {
     if let Some(thumbs) = v["thumbnails"].as_array() {
         // Pick a medium-res thumbnail (~320x180) instead of the largest one.
@@ -303,7 +310,7 @@ fn encode_query(q: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_query;
+    use super::{encode_query, parse_flat_tracks};
 
     #[test]
     fn encodes_reserved_chars_and_leaves_unreserved() {
@@ -312,5 +319,85 @@ mod tests {
         assert_eq!(encode_query("AC/DC-Top_Tracks.2024~"), "AC%2FDC-Top_Tracks.2024~");
         // Non-ASCII must not be passed through raw.
         assert_eq!(encode_query("té"), "t%C3%A9");
+    }
+
+    // Fixtures captured 2026-08-29 from `yt-dlp --dump-json --flat-playlist`
+    // on `https://music.youtube.com/search?q=daft%20punk` (2026.07.04) and
+    // `ytsearch10:` (same version). Shapes, not full lines.
+
+    /// Issue #42: the search page opens with album/artist/playlist browse
+    /// cards that have no title and cannot be played. All must be dropped.
+    #[test]
+    fn drops_non_video_browse_cards() {
+        let stdout = [
+            r#"{"id":"MPREb_K8qWMWVqXGi","url":"https://music.youtube.com/browse/MPREb_K8qWMWVqXGi","_type":"url","ie_key":"Youtube"}"#,
+            r#"{"id":"UCZ2J4f4052BX-NcUh55AFgg","url":"https://music.youtube.com/browse/UCZ2J4f4052BX-NcUh55AFgg","_type":"url","ie_key":"Youtube"}"#,
+            r#"{"id":"VLRDCLAK5uy_n20FRYQXNt1p1wS","url":"https://music.youtube.com/browse/VLRDCLAK5uy_n20FRYQXNt1p1wS","_type":"url","ie_key":"Youtube"}"#,
+            // A browse card that DOES have a title is still not playable.
+            r#"{"id":"MPREb_CtOaObihCXA","title":"Discovery","url":"https://music.youtube.com/browse/MPREb_CtOaObihCXA","_type":"url","ie_key":"Youtube"}"#,
+        ]
+        .join("\n");
+        assert!(parse_flat_tracks(&stdout).is_empty());
+    }
+
+    #[test]
+    fn keeps_watch_entries_with_metadata() {
+        let stdout = [
+            r#"{"id":"5NV6Rdv1a3I","title":"Daft Punk - One More Time (Official Video)","channel":"Daft Punk","uploader":"Daft Punk","duration":322,"url":"https://www.youtube.com/watch?v=5NV6Rdv1a3I","_type":"url","ie_key":"Youtube"}"#,
+        ]
+        .join("\n");
+        let tracks = parse_flat_tracks(&stdout);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, "5NV6Rdv1a3I");
+        assert_eq!(tracks[0].title, "Daft Punk - One More Time (Official Video)");
+        assert_eq!(tracks[0].artist, "Daft Punk");
+        assert!((tracks[0].duration_secs - 322.0).abs() < f64::EPSILON);
+        assert!(tracks[0].stream_url.is_none());
+    }
+
+    /// Music-page songs carry no channel/uploader/duration in flat mode:
+    /// they must still be kept (playable), with artist "Unknown".
+    #[test]
+    fn keeps_music_page_songs_without_artist() {
+        let stdout = [
+            r#"{"id":"qPRNIHxLhmc","title":"I Feel It Coming (feat. Daft Punk)","url":"https://music.youtube.com/watch?v=qPRNIHxLhmc","_type":"url","ie_key":"Youtube"}"#,
+        ]
+        .join("\n");
+        let tracks = parse_flat_tracks(&stdout);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, "qPRNIHxLhmc");
+        assert_eq!(tracks[0].title, "I Feel It Coming (feat. Daft Punk)");
+        assert_eq!(tracks[0].artist, "Unknown");
+        assert_eq!(tracks[0].duration_secs, 0.0);
+    }
+
+    /// Realistic page order: junk cards first, songs after (exactly the
+    /// ordering that pushed "Unknown" to the top of issue #42's results).
+    #[test]
+    fn filters_real_search_page_ordering() {
+        let stdout = [
+            r#"{"id":"MPREb_K8qWMWVqXGi","url":"https://music.youtube.com/browse/MPREb_K8qWMWVqXGi","_type":"url","ie_key":"Youtube"}"#,
+            r#"{"id":"UCZ2J4f4052BX-NcUh55AFgg","url":"https://music.youtube.com/browse/UCZ2J4f4052BX-NcUh55AFgg","_type":"url","ie_key":"Youtube"}"#,
+            r#"{"id":"qPRNIHxLhmc","title":"I Feel It Coming (feat. Daft Punk)","url":"https://music.youtube.com/watch?v=qPRNIHxLhmc","_type":"url","ie_key":"Youtube"}"#,
+            r#"{"id":"Jb6gcoR266U","title":"Around the World","url":"https://music.youtube.com/watch?v=Jb6gcoR266U","_type":"url","ie_key":"Youtube"}"#,
+            // Malformed lines and blanks must be skipped, not fatal.
+            "not json",
+            "",
+        ]
+        .join("\n");
+        let tracks = parse_flat_tracks(&stdout);
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].id, "qPRNIHxLhmc");
+        assert_eq!(tracks[1].id, "Jb6gcoR266U");
+    }
+
+    /// A watch entry with a blank title is not a usable result either.
+    #[test]
+    fn drops_watch_entries_with_empty_title() {
+        let stdout = [
+            r#"{"id":"abc123","title":"","url":"https://www.youtube.com/watch?v=abc123","_type":"url","ie_key":"Youtube"}"#,
+        ]
+        .join("\n");
+        assert!(parse_flat_tracks(&stdout).is_empty());
     }
 }
