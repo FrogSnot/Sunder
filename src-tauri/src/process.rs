@@ -54,10 +54,10 @@ mod tests {
     fn no_window_returns_the_command_for_chaining() {
         let mut cmd = tokio::process::Command::new("yt-dlp");
         let chained = cmd.arg("--version").no_window().arg("-j");
-        assert!(std::ptr::eq(chained, &mut cmd));
+        assert!(std::ptr::eq(chained, &cmd));
 
         let mut cmd = std::process::Command::new("yt-dlp");
         let chained = cmd.arg("--version").no_window().arg("-j");
-        assert!(std::ptr::eq(chained, &mut cmd));
+        assert!(std::ptr::eq(chained, &cmd));
     }
 }
