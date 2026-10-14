@@ -111,8 +111,10 @@ pub struct EqSource<S: Source<Item = f32>> {
 
 impl<S: Source<Item = f32>> EqSource<S> {
     pub fn new(inner: S, settings: Arc<RwLock<EqSettings>>) -> Self {
-        let channels = inner.channels();
-        let sample_rate = inner.sample_rate();
+        // rodio 0.22 (cpal 0.18) returns NonZero channel counts and sample
+        // rates; store them as the plain integers the DSP path uses.
+        let channels = inner.channels().get();
+        let sample_rate = inner.sample_rate().get();
 
         let states = (0..channels)
             .map(|_| (0..BAND_COUNT).map(|_| BiquadState::new()).collect())
@@ -202,16 +204,19 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
 }
 
 impl<S: Source<Item = f32>> Source for EqSource<S> {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.inner.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
     }
 
-    fn channels(&self) -> u16 {
-        self.channels
+    fn channels(&self) -> rodio::ChannelCount {
+        // rodio 0.22 (cpal 0.18): Source::channels returns NonZero<u16>.
+        rodio::ChannelCount::new(self.channels)
+            .expect("EqSource rejects zero-channel sources at construction")
     }
 
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
+    fn sample_rate(&self) -> rodio::SampleRate {
+        // rodio 0.22 (cpal 0.18): Source::sample_rate returns NonZero<u32>.
+        rodio::SampleRate::new(self.sample_rate).expect("sample rate is always nonzero")
     }
 
     fn total_duration(&self) -> Option<std::time::Duration> {

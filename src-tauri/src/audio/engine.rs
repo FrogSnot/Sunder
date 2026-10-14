@@ -6,7 +6,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::mixer::Mixer;
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
 use tauri::{Emitter, Manager};
 
@@ -30,7 +31,7 @@ pub enum AudioCommand {
     },
     Prepared {
         session_id: usize,
-        sink: rodio::Sink,
+        sink: rodio::Player,
         duration_ms: u64,
         resume_ms: u64,
     },
@@ -163,38 +164,79 @@ fn current_source_pos_ms(
     })
 }
 
-/// Acquire an `OutputStream` that honors the user's PulseAudio/PipeWire
-/// pavucontrol default sink on Linux.
-///
-/// Background: cpal 0.15's Linux backend is ALSA-only and its
-/// `default_output_device()` returns a `Device { name: "default" }`.
-/// alsa-lib on systems that ship both `99-pipewire-default.conf` and
-/// `99-pulseaudio-default.conf` may resolve "default" to raw card 0
-/// instead of the PulseAudio-routed `pcm.!default` override, bypassing
-/// the user's per-session default-sink setting. The alsa-lib "pulse"
-/// PCM (exposed by `alsa-plugins` as `pcm.pulse { type pulse }`) routes
-/// audio through PulseAudio, which honors `pactl get-default-sink` and
-/// therefore the sink the user marked in pavucontrol.
-///
-/// Falls through to `OutputStream::try_default()` when the "pulse" device
-/// is not enumerated (no `alsa-plugins`, no PulseAudio), the open fails,
-/// or on non-Linux platforms, preserving the previous behavior.
+/// Which route the acquisition ladder selected. Returned alongside the sink so
+/// callers and tests can tell the fallback rungs apart (issue #43).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioRoute {
+    /// cpal's native PipeWire host.
+    PipeWire,
+    /// Legacy ALSA "pulse" PCM alias (commit 2202eea behavior).
+    PulseAlsa,
+    /// cpal/rodio default host/device chain (old try_default behavior).
+    SystemDefault,
+}
+
+impl AudioRoute {
+    fn label(self) -> &'static str {
+        match self {
+            AudioRoute::PipeWire => "native PipeWire host (pavucontrol default sink)",
+            AudioRoute::PulseAlsa => "PulseAudio ALSA 'pulse' PCM (pavucontrol default sink)",
+            AudioRoute::SystemDefault => "cpal default output",
+        }
+    }
+}
+
+/// Walk the acquisition ladder and report which rung opened. Split from
+/// [`acquire_output_stream`] so the preference order is directly testable.
 #[cfg(target_os = "linux")]
-fn try_output_stream_pulse_first()
-    -> Result<(OutputStream, rodio::OutputStreamHandle), String> {
+fn open_output_by_route() -> Result<(AudioRoute, MixerDeviceSink, Mixer), String> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    let host = rodio::cpal::default_host();
-    if let Ok(devices) = host.output_devices() {
+    use rodio::cpal::HostId;
+
+    // 1. Native PipeWire host. PipeWire tracks the session default sink, so
+    //    playback follows the pavucontrol selection without any sniffing.
+    if rodio::cpal::available_hosts().contains(&HostId::PipeWire) {
+        if let Ok(host) = rodio::cpal::host_from_id(HostId::PipeWire) {
+            if let Some(dev) = host.default_output_device() {
+                match DeviceSinkBuilder::from_device(dev).and_then(|b| b.open_stream()) {
+                    Ok(sink) => {
+                        let mixer = sink.mixer().clone();
+                        return Ok((AudioRoute::PipeWire, sink, mixer));
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[sunder] audio: PipeWire host open failed ({e}); trying legacy 'pulse' PCM"
+                        );
+                    }
+                }
+            } else {
+                eprintln!(
+                    "[sunder] audio: PipeWire host has no default output device; trying legacy 'pulse' PCM"
+                );
+            }
+        }
+    }
+
+    // 2. Legacy: ALSA "pulse" PCM alias via the ALSA host (commit 2202eea).
+    let alsa_host = rodio::cpal::host_from_id(HostId::Alsa)
+        .map_err(|e| format!("ALSA host unavailable: {e}"))?;
+    if let Ok(devices) = alsa_host.devices() {
+        // description().driver() is the PCM id; matching on it avoids opening
+        // devices during the scan (cpal 0.18 deliberately defers opens).
         if let Some(pulse_dev) = devices
             .into_iter()
-            .find(|d| d.name().ok().as_deref() == Some("pulse"))
+            .find(|d| {
+                d.description()
+                    .ok()
+                    .and_then(|desc| desc.driver().map(|s| s.to_string()))
+                    .as_deref()
+                    == Some("pulse")
+            })
         {
-            match OutputStream::try_from_device(&pulse_dev) {
-                Ok(stream) => {
-                    eprintln!(
-                        "[sunder] audio: routing via PulseAudio ALSA 'pulse' PCM (pavucontrol default sink)"
-                    );
-                    return Ok(stream);
+            match DeviceSinkBuilder::from_device(pulse_dev).and_then(|b| b.open_stream()) {
+                Ok(sink) => {
+                    let mixer = sink.mixer().clone();
+                    return Ok((AudioRoute::PulseAlsa, sink, mixer));
                 }
                 Err(e) => {
                     eprintln!(
@@ -204,13 +246,71 @@ fn try_output_stream_pulse_first()
             }
         }
     }
-    OutputStream::try_default().map_err(|e| e.to_string())
+
+    // 3. cpal/rodio default chain.
+    DeviceSinkBuilder::open_default_sink()
+        .map(|sink| {
+            let mixer = sink.mixer().clone();
+            (AudioRoute::SystemDefault, sink, mixer)
+        })
+        .map_err(|e| e.to_string())
 }
 
+/// Non-Linux: the platform default device is already the session default.
 #[cfg(not(target_os = "linux"))]
-fn try_output_stream_pulse_first()
-    -> Result<(OutputStream, rodio::OutputStreamHandle), String> {
-    OutputStream::try_default().map_err(|e| e.to_string())
+fn open_output_by_route() -> Result<(AudioRoute, MixerDeviceSink, Mixer), String> {
+    DeviceSinkBuilder::open_default_sink()
+        .map(|sink| {
+            let mixer = sink.mixer().clone();
+            (AudioRoute::SystemDefault, sink, mixer)
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Acquire an audio output sink that honors the user's PipeWire/PulseAudio
+/// pavucontrol default on Linux (issue #43). Preference order:
+/// native PipeWire host, then the legacy ALSA "pulse" PCM alias
+/// (commit 2202eea behavior), then the cpal/rodio default chain. Returns the
+/// owned [`MixerDeviceSink`] (the old `OutputStream`) plus the [`Mixer`] the
+/// sink hands out for appending players.
+fn acquire_output_stream() -> Result<(MixerDeviceSink, Mixer), String> {
+    let (route, sink, mixer) = open_output_by_route()?;
+    eprintln!("[sunder] audio: {}", route.label());
+    Ok((sink, mixer))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod route_tests {
+    use super::*;
+
+    /// Runtime smoke test for issue #43: on a live PipeWire session
+    /// (XDG_RUNTIME_DIR/pipewire-0 socket present) the native PipeWire host
+    /// must be the rung that opens. On hosts without a PipeWire session
+    /// (CI runners) the ladder must still terminate without panicking.
+    #[test]
+    fn preferred_route_follows_session() {
+        let pipewire_session = std::env::var("XDG_RUNTIME_DIR")
+            .map(|dir| std::path::Path::new(&dir).join("pipewire-0").exists())
+            .unwrap_or(false);
+        match open_output_by_route() {
+            Ok((route, sink, _mixer)) => {
+                drop(sink);
+                if pipewire_session {
+                    assert_eq!(
+                        route,
+                        AudioRoute::PipeWire,
+                        "native PipeWire host must be preferred on a PipeWire session (issue #43)"
+                    );
+                }
+            }
+            Err(e) => {
+                assert!(
+                    !pipewire_session,
+                    "PipeWire socket exists but no output route opened: {e}"
+                );
+            }
+        }
+    }
 }
 
 /// Fade structures for inline processing. Module-scoped so `RecoveryContext`
@@ -242,10 +342,10 @@ struct RecoveryContext<'a> {
     current_session: &'a Arc<AtomicUsize>,
     eq_settings: &'a Arc<RwLock<EqSettings>>,
     active_id: &'a mut Option<String>,
-    sink: &'a mut Option<Sink>,
+    sink: &'a mut Option<Player>,
 
-    _stream: &'a mut Option<OutputStream>,
-    stream_handle: &'a mut Option<rodio::OutputStreamHandle>,
+    _stream: &'a mut Option<MixerDeviceSink>,
+    stream_handle: &'a mut Option<Mixer>,
     epoch_source_ms: &'a mut u64,
     epoch_start: &'a mut Option<Instant>,
     paused_pos_ms: &'a mut Option<u64>,
@@ -362,8 +462,8 @@ fn rebuild_stream_and_replay(
         s.stop();
     }
     drop(ctx._stream.take());
-    let new_stream_result: Result<(OutputStream, rodio::OutputStreamHandle), String> =
-        try_output_stream_pulse_first();
+    let new_stream_result: Result<(MixerDeviceSink, Mixer), String> =
+        acquire_output_stream();
     let (new_stream, new_stream_handle) = match new_stream_result {
         Ok(s) => s,
         Err(e) => {
@@ -587,15 +687,14 @@ fn audio_thread(
     // OutputStream is a terminal-state resource: only Playing, Loading, and
     // Paused may own it. Idle and NoDevice must keep the owner/handle pair
     // absent so the ALSA PCM is released while the app remains alive.
-    let (init_stream, init_handle): (Option<OutputStream>, Option<rodio::OutputStreamHandle>) =
-        (None, None);
-    let mut _stream: Option<OutputStream> = init_stream;
-    let mut stream_handle: Option<rodio::OutputStreamHandle> = init_handle;
+    let (init_stream, init_handle): (Option<MixerDeviceSink>, Option<Mixer>) = (None, None);
+    let mut _stream: Option<MixerDeviceSink> = init_stream;
+    let mut stream_handle: Option<Mixer> = init_handle;
     eprintln!("[sunder] audio thread started idle; output will be acquired on Play");
     let mut active_id: Option<String> = None;
     let mut underrun_held_since: Option<Instant> = None;
     let mut last_recovery_at: Option<Instant> = None;
-    let mut sink: Option<Sink> = None;
+    let mut sink: Option<Player> = None;
 
     let mut controls = match MediaControls::new(PlatformConfig {
         dbus_name: "sunder",
@@ -747,7 +846,7 @@ fn audio_thread(
                     if _stream.is_none() {
                         let st_now = state.read().unwrap().clone();
                         if st_now != PlaybackState::NoDevice {
-                            match try_output_stream_pulse_first() {
+                            match acquire_output_stream() {
                                 Ok((new_stream, new_stream_handle)) => {
                                     _stream = Some(new_stream);
                                     stream_handle = Some(new_stream_handle.clone());
@@ -1399,12 +1498,12 @@ fn cleanup_cache(cache_dir: &std::path::Path, keep: usize) {
 fn start_streaming(
     video_id: &str,
     state: &Arc<RwLock<PlaybackState>>,
-    stream_handle: &rodio::OutputStreamHandle,
+    stream_handle: &Mixer,
     eq_settings: &Arc<RwLock<EqSettings>>,
     app: &tauri::AppHandle,
     current_session: &Arc<AtomicUsize>,
     session_id: usize,
-) -> Result<Sink, crate::error::AppError> {
+) -> Result<Player, crate::error::AppError> {
     let url = format!("https://www.youtube.com/watch?v={video_id}");
     let bin = ytdlp_bin(app);
 
@@ -1592,13 +1691,9 @@ fn start_streaming(
     let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
-    let sink =
-        Sink::try_new(stream_handle).map_err(|e| crate::error::AppError::Audio(e.to_string()))?;
+    let sink = Player::connect_new(stream_handle);
     sink.set_volume(0.0);
-    sink.append(EqSource::new(
-        decoder.convert_samples(),
-        eq_settings.clone(),
-    ));
+    sink.append(EqSource::new(decoder, eq_settings.clone()));
 
     Ok(sink)
 }

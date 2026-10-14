@@ -5,7 +5,7 @@ use std::io;
 use std::process::Command;
 use std::time::Duration;
 
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, DeviceSinkBuilder, Player};
 
 fn main() {
     let video_id = "dQw4w9WgXcQ";
@@ -46,8 +46,11 @@ fn main() {
     let decoder = Decoder::new(io::BufReader::new(file)).expect("decoder failed");
     eprintln!("[test] decoder created, starting playback...");
 
-    let (_stream, handle) = OutputStream::try_default().expect("no audio device");
-    let sink = Sink::try_new(&handle).expect("sink failed");
+    // rodio 0.22 API: the device sink owns the OS stream; players attach to
+    // its mixer (formerly OutputStream/OutputStreamHandle/Sink).
+    let mut device_sink = DeviceSinkBuilder::open_default_sink().expect("no audio device");
+    device_sink.log_on_drop(false);
+    let sink = Player::connect_new(device_sink.mixer());
     sink.append(decoder);
 
     eprintln!("[test] playing for 5 seconds...");

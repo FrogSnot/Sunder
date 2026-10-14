@@ -17,7 +17,18 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util"] }
-rodio = { version = "0.19", default-features = false, features = ["symphonia-mp3", "symphonia-isomp4", "symphonia-aac", "symphonia-vorbis", "symphonia-flac", "symphonia-wav"] }
+# crates.io rodio releases do not ship a cpal with a PipeWire host: 0.20.1
+# pins cpal 0.15 (ALSA-only on Linux, issue #43), 0.21.x pins cpal 0.16 and
+# 0.22.x pins cpal 0.17. cpal 0.18 introduced the PipeWire and PulseAudio
+# hosts; upstream rodio currently ships cpal 0.18.2 on its own
+# backport-cpal-0.18 branch, still at version 0.22.2 (rust-version 1.87).
+# Pin that branch until a crates.io rodio with cpal 0.18+ is published.
+rodio = { git = "https://github.com/RustAudio/rodio", branch = "backport-cpal-0.18", default-features = false, features = ["playback", "symphonia-mp3", "symphonia-isomp4", "symphonia-aac", "symphonia-vorbis", "symphonia-flac", "symphonia-wav"] }
+# Direct dep so the cpal `pipewire` cargo feature (PipeWire host, issue #43)
+# is enabled; the rodio backport branch does not forward cpal platform
+# features. Cargo unifies this with rodio's own cpal 0.18.2 dependency, so
+# there is still exactly one cpal in the graph.
+cpal = { version = "0.18.2", default-features = false, features = ["pipewire"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 chrono = "0.4"

@@ -25,7 +25,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libdbus-1-dev \
-            libasound2-dev
+            libasound2-dev \
+            libpipewire-0.3-dev
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
