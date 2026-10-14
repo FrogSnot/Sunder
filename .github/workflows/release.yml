@@ -108,11 +108,13 @@ jobs:
           # which lacks modern symbols like pw_stream_get_time_n) regardless of
           # PKG_CONFIG_PATH. Repoint the dev symlink at our 0.3.85 so link and
           # headers agree.
-          if [ ! -f /opt/pipewire-0.3.85/lib/libpipewire-0.3.so ]; then
-            echo "::error::/opt/pipewire-0.3.85/lib/libpipewire-0.3.so not found"
+          LIBSO=$(ls /opt/pipewire-0.3.85/lib/libpipewire-0.3.so /opt/pipewire-0.3.85/lib/*/libpipewire-0.3.so 2>/dev/null | head -1)
+          if [ -z "$LIBSO" ]; then
+            echo "::error::libpipewire-0.3.so not found under /opt/pipewire-0.3.85/lib"
             exit 1
           fi
-          sudo ln -sf /opt/pipewire-0.3.85/lib/libpipewire-0.3.so /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so
+          echo "relinking dev symlink to $LIBSO"
+          sudo ln -sf "$LIBSO" /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so
           if nm -D /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so | grep -q pw_stream_get_time_n; then
             echo "libpipewire-0.3.so now provides pw_stream_get_time_n (0.3.85)"
           else
