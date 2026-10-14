@@ -59,6 +59,7 @@
     color: var(--accent);
     display: flex;
     align-items: center;
+    flex-shrink: 0;
   }
   .ghost-handle svg { width: 14px; height: 14px; }
 

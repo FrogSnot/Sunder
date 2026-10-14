@@ -130,6 +130,10 @@ input {
 .drag-row:hover .drag-handle { opacity: 1; color: var(--text-secondary); }
 .drag-row.is-dragging .drag-handle { opacity: 1; color: var(--accent); }
 .drag-row.is-dragging { opacity: 0.35; transform: scale(0.98); cursor: grabbing; }
+/* Lifted rows paint above neighbors so handles/thumbs/badges can never be
+   overdrawn by shifting text during drag or FLIP settle (issue polish). */
+.drag-row.is-dragging,
+.drag-row.is-key-drag { z-index: 3; }
 
 .drag-row.drop-before::before,
 .drag-row.drop-after::after {

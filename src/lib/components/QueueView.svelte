@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { fly } from "svelte/transition";
+  import { flip } from "svelte/animate";
+  import { quintOut } from "svelte/easing";
   import { playTrack, createPlaylist, addToPlaylist } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { nav } from "../state/nav.svelte";
   import { toastState } from "../state/toast.svelte";
-  import { fly } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
   import DragGhost from "./DragGhost.svelte";
   import WormText from "./WormText.svelte";
@@ -93,7 +95,7 @@
   }
 
   async function handlePlay(index: number) {
-    if (reorder.dragging || reorder.justDragged()) return;
+    if (reorder.busy() || reorder.justDragged()) return;
     const track = player.playFromQueue(index);
     if (track) {
       try { await playTrack(track); } catch (e) { console.error("play:", e); }
@@ -152,7 +154,62 @@
   }
 
   function handleContext(e: MouseEvent, track: Track) {
+    if (reorder.busy() || reorder.justDragged()) return;
     ctxMenu.open(e, track);
+  }
+
+  /**
+   * Live projection of post-drop row numbers while a drag is active: the
+   * existing .track-num previews the projected order. Built from the
+   * engine's targetPosition - the same _commitIndex math that produces
+   * onReorder's `to` - so the preview can never diverge from the drop.
+   * Section numbering follows the projected order (played = array prefix,
+   * up-next = after the now-playing track), matching what moveInQueue will
+   * produce. Null when idle or when the drag sits on its own slot, so rows
+   * show their plain ri + 1.
+   */
+  let dragProjection = $derived.by(() => {
+    if (!reorder.dragging || reorder.dragFrom < 0 || reorder.targetPosition < 1) return null;
+    const from = reorder.dragFrom;
+    const to = Math.min(Math.max(reorder.targetPosition - 1, 0), queue.length - 1);
+    if (to === from) return null;
+    const order: number[] = [];
+    for (let i = 0; i < queue.length; i++) if (i !== from) order.push(i);
+    order.splice(to, 0, from);
+    // mirror moveInQueue's queueIndex adjustment
+    let pc = currentIndex;
+    if (currentIndex === from) pc = to;
+    else if (from < currentIndex && to >= currentIndex) pc = currentIndex - 1;
+    else if (from > currentIndex && to <= currentIndex) pc = currentIndex + 1;
+    const nums = new Map<number, number>();
+    for (let pj = 0; pj < order.length; pj++) {
+      const qi = order[pj];
+      if (qi === currentIndex) continue; // now playing has no number
+      nums.set(qi, pj < pc ? pj + 1 : pj - pc);
+    }
+    return nums;
+  });
+
+  let live = $state("");
+  const KEY_HINT =
+    "Use arrow keys to move, Enter to drop, Escape to cancel.";
+
+  function onHandleKeydown(e: KeyboardEvent, idx: number): void {
+    const msg = reorder.onHandleKeydown(e, idx);
+    if (msg) live = msg;
+  }
+
+  let upNextKeyIdx = $state(0);
+  let playedKeyIdx = $state(0);
+
+  function handleKeyActivate(list: "upNext" | "played", idx: number): void {
+    if (reorder.busy() || reorder.justDragged()) return;
+    if (list === "upNext") handlePlay(currentIndex + 1 + idx);
+    else handlePlay(idx);
+  }
+
+  function dropHint(idx: number): string {
+    return `Drop before ${idx + 1}. ${KEY_HINT}`;
   }
 </script>
 
@@ -160,6 +217,7 @@
 <DragGhost {reorder} />
 
 <div class="queue-view">
+  <div class="sr-only" role="status" aria-live="assertive">{live}</div>
   <div class="queue-header">
     <h2 class="queue-title">Queue</h2>
     {#if queue.length > 0}
@@ -277,17 +335,27 @@
           <div
             class="track-row drag-row"
             class:is-dragging={reorder.isDragging(queueIdx)}
+            class:is-key-drag={reorder.isDragging(queueIdx)}
             class:drop-before={reorder.dragOver === queueIdx && reorder.dropPosition === "before" && !reorder.isDragging(queueIdx)}
             class:drop-after={reorder.dragOver === queueIdx && reorder.dropPosition === "after" && !reorder.isDragging(queueIdx)}
             data-idx={queueIdx}
+            data-track-id={track.id}
             onpointerdown={(e) => reorder.onPointerDown(e, queueIdx)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
+            animate:flip={{ duration: 260, easing: quintOut }}
           >
-            <span class="drag-handle" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-            </span>
-            <span class="track-num">{ri + 1}</span>
+            <button
+              class="drag-handle handle-btn"
+              tabindex={upNextKeyIdx === ri ? 0 : -1}
+              onfocus={() => (upNextKeyIdx = ri)}
+              onkeydown={(e) => onHandleKeydown(e, queueIdx)}
+              aria-label="Reorder {track.title}. Position {ri + 1} of {upNext.length}. Press Enter to pick up."
+              data-handle="true"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+            </button>
+            <span class="track-num" onclick={(e) => { e.stopPropagation(); handleKeyActivate("upNext", ri); }} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleKeyActivate("upNext", ri); } }} role="button" tabindex="-1">{dragProjection?.get(queueIdx) ?? ri + 1}</span>
             <TrackArt {track} onplay={() => handlePlay(queueIdx)} size={40} />
             <button
               class="track-play"
@@ -325,17 +393,27 @@
           <div
             class="track-row drag-row played-row"
             class:is-dragging={reorder.isDragging(ri)}
+            class:is-key-drag={reorder.isDragging(ri)}
             class:drop-before={reorder.dragOver === ri && reorder.dropPosition === "before" && !reorder.isDragging(ri)}
             class:drop-after={reorder.dragOver === ri && reorder.dropPosition === "after" && !reorder.isDragging(ri)}
             data-idx={ri}
+            data-track-id={track.id}
             onpointerdown={(e) => reorder.onPointerDown(e, ri)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
+            animate:flip={{ duration: 260, easing: quintOut }}
           >
-            <span class="drag-handle" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
-            </span>
-            <span class="track-num">{ri + 1}</span>
+            <button
+              class="drag-handle handle-btn"
+              tabindex={playedKeyIdx === ri ? 0 : -1}
+              onfocus={() => (playedKeyIdx = ri)}
+              onkeydown={(e) => onHandleKeydown(e, ri)}
+              aria-label="Reorder {track.title}. Position {ri + 1} of {queue.length}. Press Enter to pick up."
+              data-handle="true"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+            </button>
+            <span class="track-num" onclick={(e) => { e.stopPropagation(); handleKeyActivate("played", ri); }} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleKeyActivate("played", ri); } }} role="button" tabindex="-1">{dragProjection?.get(ri) ?? ri + 1}</span>
             <TrackArt {track} onplay={() => handlePlay(ri)} size={40} />
             <button
               class="track-play"
@@ -503,6 +581,64 @@
     -webkit-touch-callout: none;
   }
 
+  .drag-row.is-dragging,
+  .drag-row.is-key-drag {
+    transition: none;
+    cursor: grabbing;
+  }
+
+  .drag-row.is-key-drag {
+    opacity: 0.35;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    z-index: 3;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* The handle is a real focusable button (keyboard reorder); undo the
+     global .drag-handle sizing and button chrome. */
+  .handle-btn {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    height: 40px;
+    width: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: grab;
+    border-radius: var(--radius-sm);
+  }
+
+  .handle-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .handle-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    color: var(--accent);
+  }
+
+  .handle-btn:focus:not(:focus-visible) {
+    outline: none;
+  }
+
   .track-row:hover {
     transform: none;
   }
@@ -589,6 +725,7 @@
 
   .track-play {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 14px;

@@ -116,28 +116,96 @@
   function showToast(msg: string, type: "info" | "error" = "info") {
     toastState.add(msg, type, 2000);
   }
+
+  // --- keyboard navigation (WAI-ARIA menu pattern) ---------------------------
+  // The menu container carries role="menu"; arrow keys move focus between the
+  // item buttons, Home/End jump to first/last, Escape backs out of the
+  // playlist submenu or closes the menu. Disabled items are skipped (they
+  // cannot take focus).
+
+  function focusableItems(): HTMLButtonElement[] {
+    const menu = document.querySelector(".ctx-menu");
+    if (!menu) return [];
+    return [...menu.querySelectorAll<HTMLButtonElement>("button.ctx-item, button.ctx-back")].filter(
+      (b) => !b.disabled,
+    );
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") {
+      return;
+    }
+    const items = focusableItems();
+    if (items.length === 0) return;
+    e.preventDefault();
+    const active = document.activeElement;
+    const current = active instanceof HTMLElement ? items.indexOf(active as HTMLButtonElement) : -1;
+    let next: number;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (e.key === "ArrowDown") next = current + 1 >= items.length ? 0 : current + 1;
+    else next = current - 1 < 0 ? items.length - 1 : current - 1;
+    items[next]?.focus();
+  }
+
+  // Escape is handled at window level (mirroring the window click-to-close):
+  // it must work no matter where focus is, including after a mouse click that
+  // some engines do not turn into button focus. Backs out of the playlist
+  // submenu first, then closes.
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (!visible || e.key !== "Escape") return;
+    if (showPlaylists) {
+      showPlaylists = false;
+      return;
+    }
+    close();
+  }
+
+  // Focus the first item whenever the menu renders or the view swaps, so the
+  // menu pattern works without a prior pointer interaction.
+  $effect(() => {
+    if (!visible) return;
+    // Read so a submenu swap re-runs this and re-anchors focus in the new view.
+    const _view = showPlaylists;
+    // One frame later: the {#if visible} block must be in the DOM first.
+    requestAnimationFrame(() => {
+      if (!visible) return;
+      const menu = document.querySelector(".ctx-menu");
+      const target =
+        menu?.querySelector<HTMLElement>(".ctx-back") ??
+        menu?.querySelector<HTMLElement>(".ctx-item");
+      target?.focus();
+    });
+  });
 </script>
 
-<svelte:window onclick={close} oncontextmenu={() => { if (visible) close(); }} />
+<svelte:window onclick={close} onkeydown={handleWindowKeydown} oncontextmenu={() => { if (visible) close(); }} />
 
 {#if visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <div class="ctx-menu" style="left: {x}px; top: {y}px" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="ctx-menu"
+    style="left: {x}px; top: {y}px"
+    role="menu"
+    aria-orientation="vertical"
+    tabindex="-1"
+    onkeydown={handleKeydown}
+    onclick={(e) => e.stopPropagation()}
+  >
     {#if !showPlaylists}
-      <button class="ctx-item" onclick={handlePlayNext}>
+      <button class="ctx-item" role="menuitem" onclick={handlePlayNext}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/><line x1="22" y1="3" x2="22" y2="21"/></svg>
         Play next
       </button>
-      <button class="ctx-item" onclick={handleAddToQueue}>
+      <button class="ctx-item" role="menuitem" onclick={handleAddToQueue}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         Add to queue
       </button>
       <div class="ctx-divider"></div>
-      <button class="ctx-item" onclick={expandPlaylists}>
+      <button class="ctx-item" role="menuitem" aria-expanded={showPlaylists ? "true" : "false"} aria-haspopup="true" onclick={expandPlaylists}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add to playlist
       </button>
-      <button class="ctx-item" class:ctx-muted={isDownloading} onclick={handleDownload} disabled={isDownloading}>
+      <button class="ctx-item" role="menuitem" class:ctx-muted={isDownloading} onclick={handleDownload} disabled={isDownloading}>
         {#if isDownloaded}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           Remove download
@@ -152,13 +220,13 @@
       {#if inQueue || inPlaylist}
         <div class="ctx-divider"></div>
         {#if inQueue}
-          <button class="ctx-item ctx-danger" onclick={handleRemoveFromQueue}>
+          <button class="ctx-item ctx-danger" role="menuitem" onclick={handleRemoveFromQueue}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             Remove from queue
           </button>
         {/if}
         {#if inPlaylist}
-          <button class="ctx-item ctx-danger" onclick={handleRemoveFromPlaylist}>
+          <button class="ctx-item ctx-danger" role="menuitem" onclick={handleRemoveFromPlaylist}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             Remove from playlist
           </button>
@@ -166,7 +234,7 @@
       {/if}
     {:else}
       <div class="ctx-header">
-        <button class="ctx-back" onclick={() => { showPlaylists = false; }} aria-label="Back">
+        <button class="ctx-back" role="menuitem" aria-label="Back to menu items" onclick={() => { showPlaylists = false; }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <span>Choose playlist</span>
@@ -176,7 +244,7 @@
       {:else}
         {#each playlists as p (p.id)}
           {@const alreadyIn = trackPlaylistIds.has(p.id)}
-          <button class="ctx-item" class:ctx-muted={alreadyIn} onclick={() => { if (!alreadyIn) handleAdd(p.id); }} disabled={alreadyIn}>
+          <button class="ctx-item" role="menuitem" class:ctx-muted={alreadyIn} onclick={() => { if (!alreadyIn) handleAdd(p.id); }} disabled={alreadyIn}>
             {#if alreadyIn}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
             {:else}
