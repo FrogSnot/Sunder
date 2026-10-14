@@ -58,6 +58,62 @@ jobs:
             libfuse2 \
             rpm
 
+      - name: Cache PipeWire 0.3.85
+        if: runner.os == 'Linux'
+        id: pipewire-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/pipewire-0.3.85
+          key: ${{ runner.os }}-${{ matrix.target }}-pipewire-0.3.85
+
+      - name: Build PipeWire 0.3.85 from source
+        # libspa 0.10.1 (pulled by cpal 0.18.2's pipewire feature) does not
+        # compile against Ubuntu 22.04's PipeWire 0.3.48 headers; build 0.3.85
+        # so pkg-config picks up modern headers first (the apt libpipewire-0.3-dev
+        # stays as pkg-config fallback).
+        if: runner.os == 'Linux' && steps.pipewire-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y meson ninja-build pkg-config
+          curl -fSL -o /tmp/pipewire-0.3.85.tar.gz \
+            https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/0.3.85/pipewire-0.3.85.tar.gz
+          tar -xzf /tmp/pipewire-0.3.85.tar.gz -C /tmp
+          cd /tmp/pipewire-0.3.85
+          meson setup build --prefix=/opt/pipewire-0.3.85 \
+            -Dalsa=disabled \
+            -Djack=disabled \
+            -Dpulse=disabled \
+            -Dbluez5=disabled \
+            -Dv4l2=disabled \
+            -Ddocs=disabled \
+            -Dexamples=disabled \
+            -Dtests=disabled \
+            -Dsession-managers=[] \
+            -Dgstreamer2=disabled \
+            -Dsystemd=disabled
+          ninja -C build
+          sudo ninja -C build install
+
+      - name: Export PipeWire pkg-config path
+        if: runner.os == 'Linux'
+        run: |
+          PKGCONF_DIR=$(ls -d /opt/pipewire-0.3.85/lib/*/pkgconfig /opt/pipewire-0.3.85/lib/pkgconfig 2>/dev/null | head -1)
+          if [ -z "$PKGCONF_DIR" ]; then
+            echo "::error::no pkgconfig dir under /opt/pipewire-0.3.85"
+            exit 1
+          fi
+          echo "using pkgconfig dir: $PKGCONF_DIR"
+          echo "PKG_CONFIG_PATH=$PKGCONF_DIR" >> "$GITHUB_ENV"
+
+      - name: Verify PipeWire dev version
+        if: runner.os == 'Linux'
+        run: |
+          VERSION=$(pkg-config --modversion libpipewire-0.3)
+          echo "libpipewire-0.3 modversion: $VERSION"
+          if [ "$VERSION" != "0.3.85" ]; then
+            echo "::error::expected libpipewire-0.3 0.3.85, got $VERSION"
+            exit 1
+          fi
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
