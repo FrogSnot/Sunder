@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -29,8 +29,9 @@
   }
 
   async function handleNext() {
-    const next = player.nextTrack(true);
-    if (next) await playTrack(next);
+    // Through the bridge so the lazy playlist context fallback resolves the
+    // next track once the materialized window ends (issue #44).
+    await playNext(true);
   }
 
   function handleShuffle() {

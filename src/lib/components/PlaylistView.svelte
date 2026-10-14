@@ -227,6 +227,26 @@
 
   async function handlePlay(track: Track) {
     if (reorder.dragging || reorder.justDragged()) return;
+    // Clicking a track here starts PLAYBACK CONTEXT, not a single play
+    // (issue #44): the playlist continues from the clicked position, and the
+    // rest of it is resolved lazily instead of being materialized at once.
+    const pid = nav.activePlaylistId;
+    if (pid !== null) {
+      const order = detailTracks.map((t) => t.id);
+      const index = order.indexOf(track.id);
+      if (index !== -1) {
+        const started = await player.playFromPlaylist(
+          pid,
+          nav.activePlaylistName ?? "",
+          order,
+          index,
+        );
+        if (started) {
+          await playTrack(started);
+          return;
+        }
+      }
+    }
     try {
       await playTrack(track);
     } catch (e) {
@@ -250,6 +270,12 @@
   async function playNow(tracks: Track[]) {
     if (tracks.length === 0) return;
     player.setQueue(tracks);
+    // Explicit Play All still materializes (user asked for it), but rides the
+    // same context chain so the chip and advance semantics stay consistent.
+    const pid = nav.activePlaylistId;
+    if (pid !== null) {
+      player.attachContext(pid, nav.activePlaylistName ?? "", tracks.map((t) => t.id), 0);
+    }
     const first = player.playFromQueue(0);
     if (first) await playTrack(first);
   }
@@ -301,6 +327,9 @@
       const tracks = await getPlaylistTracks(p.id);
       if (tracks.length === 0) return;
       player.setQueue(tracks);
+      // Quick play from the card = Play All semantics: materialized queue
+      // riding the same context chain (issue #44).
+      player.attachContext(p.id, p.name, tracks.map((t) => t.id), 0);
       const first = player.playFromQueue(0);
       if (first) await playTrack(first);
     } catch (e) {

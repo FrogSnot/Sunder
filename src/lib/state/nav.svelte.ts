@@ -10,6 +10,13 @@ class NavState {
     if (!this.focusMode && !hasTrack) return;
     this.focusMode = !this.focusMode;
   }
+
+  /** Jump straight to a playlist detail view (used by the queue chip). */
+  jumpToPlaylist(id: number, name: string) {
+    this.activeTab = "playlist-detail";
+    this.activePlaylistId = id;
+    this.activePlaylistName = name;
+  }
 }
 
 export const nav = new NavState();

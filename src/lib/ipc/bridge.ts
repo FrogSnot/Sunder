@@ -40,6 +40,11 @@ export async function playTrack(track: Track): Promise<void> {
     player.queueIndex = insertAt;
   }
   player.prefetchAhead(player.queueIndex);
+  // Keep the playlist context chain in sync with explicit plays (issue #44):
+  // playing a context track re-anchors the chain there; a foreign play
+  // suspends it until the chain resurfaces in the queue.
+  player.resyncContextForTrack(track.id);
+  player.ensureNext();
   await invoke("play_track", { trackId: track.id });
   // Lazy lyrics: only fetch if the lyrics panel is already open
   if (lyricsState.visible) {
@@ -56,7 +61,12 @@ export async function playNext(manual = false): Promise<void> {
     const next = player.nextTrack(manual);
     if (next) {
       await playTrack(next);
+      return;
     }
+    // Lazy playlist context: the materialized window ended; resolve the next
+    // context track on demand (issue #44).
+    const ctxNext = await player.nextContextTrack();
+    if (ctxNext) await playTrack(ctxNext);
   } finally {
     advancing = false;
   }
@@ -71,7 +81,11 @@ export async function playPrev(manual = false): Promise<void> {
   const prev = player.prevTrack(manual);
   if (prev) {
     await playTrack(prev);
+    return;
   }
+  // Lazy playlist context: step back past the materialized window (issue #44).
+  const ctxPrev = await player.prevContextTrack();
+  if (ctxPrev) await playTrack(ctxPrev);
 }
 
 export async function pause(): Promise<void> {
@@ -253,6 +267,8 @@ export async function restoreQueue(): Promise<void> {
   if (player.queueIndex >= 0) {
     player.currentTrack = tracks[player.queueIndex];
   }
+  // Restore a persisted playlist context if it still matches the queue.
+  player.restorePersistedContext();
 }
 
 export interface UpdateInfo {

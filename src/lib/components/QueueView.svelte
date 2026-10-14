@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { playTrack, createPlaylist, addToPlaylist } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
+  import { nav } from "../state/nav.svelte";
   import { toastState } from "../state/toast.svelte";
   import { fly } from "svelte/transition";
   import ContextMenu from "./ContextMenu.svelte";
@@ -235,6 +236,30 @@
             </div>
             <span class="track-duration">{formatDuration(nowPlaying.duration_secs)}</span>
           </button>
+          {#if player.playbackContext}
+            {@const ctx = player.playbackContext}
+            <button
+              class="ctx-chip"
+              class:ctx-suspended={player.contextSuspended}
+              onclick={(e) => {
+                e.stopPropagation();
+                nav.jumpToPlaylist(ctx.playlistId, ctx.playlistName);
+              }}
+              title={player.contextSuspended
+                ? "Paused - resumes from " + ctx.playlistName + " after this track - click to open"
+                : "Queue continues from " + ctx.playlistName + " - click to open"}
+              aria-label={player.contextSuspended
+                ? "Playlist " + ctx.playlistName + " paused, resumes after this track. Open playlist."
+                : "Playing from playlist " + ctx.playlistName + ". Open playlist."}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
+              Playing from {ctx.playlistName}
+            </button>
+          {/if}
         </div>
       {/key}
     {/if}
@@ -502,6 +527,46 @@
 
   .np-title {
     color: var(--accent);
+  }
+
+  .ctx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    width: fit-content;
+    padding: 2px 8px;
+    margin-top: 2px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border-radius: 999px;
+    transition: color 150ms ease, background 150ms ease, transform 150ms ease, opacity 200ms ease;
+  }
+
+  /* Chain temporarily paused behind a one-off/foreign track: the chip stays
+     mounted and dims instead of unmounting (no hide/show flicker). Same box,
+     so nothing shifts. */
+  .ctx-chip.ctx-suspended {
+    opacity: 0.45;
+    color: var(--text-muted);
+  }
+
+  .ctx-chip.ctx-suspended:hover {
+    opacity: 0.8;
+  }
+
+  .ctx-chip svg {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+  }
+
+  .ctx-chip:hover {
+    color: var(--accent);
+    background: var(--bg-elevated);
+    transform: scale(1.03);
   }
 
   .played-list {
