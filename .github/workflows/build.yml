@@ -82,14 +82,14 @@ jobs:
           meson setup build --prefix=/opt/pipewire-0.3.85 \
             -Dalsa=disabled \
             -Djack=disabled \
-            -Dpulse=disabled \
+            -Dlibpulse=disabled \
             -Dbluez5=disabled \
             -Dv4l2=disabled \
             -Ddocs=disabled \
             -Dexamples=disabled \
             -Dtests=disabled \
             -Dsession-managers=[] \
-            -Dgstreamer2=disabled \
+            -Dgstreamer=disabled \
             -Dsystemd=disabled
           ninja -C build
           sudo ninja -C build install
