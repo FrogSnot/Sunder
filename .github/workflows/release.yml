@@ -103,6 +103,22 @@ jobs:
           fi
           echo "using pkgconfig dir: $PKGCONF_DIR"
           echo "PKG_CONFIG_PATH=$PKGCONF_DIR" >> "$GITHUB_ENV"
+          # rustc emits -L search paths after the -l names, so the linker still
+          # resolves -lpipewire-0.3 from /usr/lib/x86_64-linux-gnu (apt 0.3.48,
+          # which lacks modern symbols like pw_stream_get_time_n) regardless of
+          # PKG_CONFIG_PATH. Repoint the dev symlink at our 0.3.85 so link and
+          # headers agree.
+          if [ ! -f /opt/pipewire-0.3.85/lib/libpipewire-0.3.so ]; then
+            echo "::error::/opt/pipewire-0.3.85/lib/libpipewire-0.3.so not found"
+            exit 1
+          fi
+          sudo ln -sf /opt/pipewire-0.3.85/lib/libpipewire-0.3.so /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so
+          if nm -D /usr/lib/x86_64-linux-gnu/libpipewire-0.3.so | grep -q pw_stream_get_time_n; then
+            echo "libpipewire-0.3.so now provides pw_stream_get_time_n (0.3.85)"
+          else
+            echo "::error::relinked libpipewire-0.3.so still lacks pw_stream_get_time_n"
+            exit 1
+          fi
 
       - name: Verify PipeWire dev version
         if: runner.os == 'Linux'
