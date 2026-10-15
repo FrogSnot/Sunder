@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 use rodio::mixer::Mixer;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player};
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig};
+use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, PlatformConfig, SeekDirection,
+};
 use tauri::{Emitter, Manager};
 
 use crate::process::NoWindow;
@@ -23,6 +25,7 @@ use super::state::PlaybackState;
 
 const FADE_STEPS: u32 = 10;
 const FADE_STEP_MS: u64 = 10;
+const MEDIA_SEEK_STEP: Duration = Duration::from_secs(5);
 
 pub enum AudioCommand {
     Play {
@@ -45,6 +48,11 @@ pub enum AudioCommand {
     Stop,
     SetVolume(f32),
     Seek(f64),
+    SeekRelative {
+        direction: SeekDirection,
+        offset: Duration,
+        session_id: usize,
+    },
     UpdateMetadata {
         title: String,
         artist: String,
@@ -162,6 +170,27 @@ fn current_source_pos_ms(
         let wall_ms = start.elapsed().as_millis() as u64;
         epoch_source_ms + (wall_ms as f64 * epoch_speed as f64) as u64
     })
+}
+
+fn relative_seek_target_ms(
+    current_ms: u64,
+    duration_ms: u64,
+    direction: SeekDirection,
+    offset: Duration,
+) -> u64 {
+    let offset_ms = offset.as_millis().min(u128::from(u64::MAX)) as u64;
+
+    match direction {
+        SeekDirection::Forward => {
+            let target = current_ms.saturating_add(offset_ms);
+            if duration_ms > 0 {
+                target.min(duration_ms)
+            } else {
+                target
+            }
+        }
+        SeekDirection::Backward => current_ms.saturating_sub(offset_ms),
+    }
 }
 
 /// Which route the acquisition ladder selected. Returned alongside the sink so
@@ -704,6 +733,7 @@ fn audio_thread(
         Ok(mut c) => {
             let tx_clone = tx.clone();
             let app_clone = app.clone();
+            let current_session_clone = current_session.clone();
             let _ = c.attach(move |event| {
                 match event {
                     MediaControlEvent::Pause => {
@@ -725,8 +755,20 @@ fn audio_thread(
                     MediaControlEvent::Stop => {
                         let _ = tx_clone.send(AudioCommand::Stop);
                     }
-                    MediaControlEvent::Seek(_) => {}
-                    MediaControlEvent::SeekBy(_, _) => {}
+                    MediaControlEvent::Seek(direction) => {
+                        let _ = tx_clone.send(AudioCommand::SeekRelative {
+                            direction,
+                            offset: MEDIA_SEEK_STEP,
+                            session_id: current_session_clone.load(Ordering::SeqCst),
+                        });
+                    }
+                    MediaControlEvent::SeekBy(direction, offset) => {
+                        let _ = tx_clone.send(AudioCommand::SeekRelative {
+                            direction,
+                            offset,
+                            session_id: current_session_clone.load(Ordering::SeqCst),
+                        });
+                    }
                     MediaControlEvent::SetPosition(pos) => {
                         let _ = tx_clone.send(AudioCommand::Seek(pos.0.as_secs_f64()));
                     }
@@ -783,6 +825,31 @@ fn audio_thread(
         }
 
         for cmd in cmds {
+            let cmd = match cmd {
+                AudioCommand::SeekRelative {
+                    direction,
+                    offset,
+                    session_id,
+                } => {
+                    if session_id != current_session.load(Ordering::SeqCst) {
+                        continue;
+                    }
+
+                    let current_ms = paused_pos_ms.unwrap_or_else(|| {
+                        current_source_pos_ms(epoch_source_ms, epoch_start, epoch_speed)
+                            .unwrap_or_else(|| position_ms.load(Ordering::Relaxed))
+                    });
+                    let target_ms = relative_seek_target_ms(
+                        current_ms,
+                        duration_ms.load(Ordering::Relaxed),
+                        direction,
+                        offset,
+                    );
+                    AudioCommand::Seek(target_ms as f64 / 1000.0)
+                }
+                other => other,
+            };
+
             match cmd {
                 AudioCommand::Play {
                     video_id,
@@ -1197,6 +1264,9 @@ fn audio_thread(
                         // ignore it without panicking.
                         eprintln!("[sunder] Seek({secs}) received with no active stream; ignored");
                     }
+                }
+                AudioCommand::SeekRelative { .. } => {
+                    unreachable!("relative seeks are normalized before command dispatch")
                 }
                 AudioCommand::UpdateMetadata {
                     title,
@@ -1688,7 +1758,10 @@ fn start_streaming(
     );
 
     let file = std::fs::File::open(play_path).map_err(crate::error::AppError::Io)?;
-    let decoder = Decoder::new(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
+    let decoder = Decoder::builder()
+        .with_data(io::BufReader::with_capacity(64 * 1024, file)) // this is to improve RAM usage. 64KB is enough.
+        .with_byte_len(file_len)
+        .build()
         .map_err(|e| crate::error::AppError::Audio(format!("decoder init failed: {e}")))?;
 
     let sink = Player::connect_new(stream_handle);
@@ -1731,4 +1804,79 @@ fn parse_download_pct(line: &str) -> Option<f64> {
     let content = line.trim().strip_prefix("[download]")?;
     let pct_end = content.find('%')?;
     content[..pct_end].trim().parse::<f64>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_seek_moves_forward_within_known_duration() {
+        assert_eq!(
+            relative_seek_target_ms(
+                30_000,
+                60_000,
+                SeekDirection::Forward,
+                Duration::from_secs(5),
+            ),
+            35_000
+        );
+    }
+
+    #[test]
+    fn relative_seek_clamps_forward_to_known_duration() {
+        assert_eq!(
+            relative_seek_target_ms(
+                58_000,
+                60_000,
+                SeekDirection::Forward,
+                Duration::from_secs(5),
+            ),
+            60_000
+        );
+    }
+
+    #[test]
+    fn relative_seek_does_not_clamp_forward_when_duration_is_unknown() {
+        assert_eq!(
+            relative_seek_target_ms(58_000, 0, SeekDirection::Forward, Duration::from_secs(5)),
+            63_000
+        );
+    }
+
+    #[test]
+    fn relative_seek_moves_backward_and_clamps_to_zero() {
+        assert_eq!(
+            relative_seek_target_ms(
+                30_000,
+                60_000,
+                SeekDirection::Backward,
+                Duration::from_secs(5),
+            ),
+            25_000
+        );
+        assert_eq!(
+            relative_seek_target_ms(
+                2_000,
+                60_000,
+                SeekDirection::Backward,
+                Duration::from_secs(5),
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn relative_seek_uses_saturating_arithmetic_for_large_offsets() {
+        let maximum_offset = Duration::new(u64::MAX, 999_999_999);
+
+        assert_eq!(
+            relative_seek_target_ms(1, 0, SeekDirection::Forward, maximum_offset),
+            u64::MAX
+        );
+        assert_eq!(
+            relative_seek_target_ms(1, 0, SeekDirection::Backward, maximum_offset),
+            0
+        );
+    }
 }
