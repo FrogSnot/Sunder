@@ -4,6 +4,7 @@
   import { nav } from "../state/nav.svelte";
   import { toastState } from "../state/toast.svelte";
   import { downloads } from "../state/downloads.svelte";
+  import { suppressTooltips, unsuppressTooltips } from "../util/tooltip.svelte";
   import type { Playlist, Track } from "../types";
 
   let { onRemoveFromPlaylist = undefined }: { onRemoveFromPlaylist?: (trackId: string) => void } = $props();
@@ -32,11 +33,13 @@
     x = Math.min(e.clientX, vw - 200);
     y = Math.min(e.clientY, vh - 200);
     visible = true;
+    suppressTooltips("ctxmenu");
   }
 
   function close() {
     visible = false;
     showPlaylists = false;
+    unsuppressTooltips("ctxmenu");
   }
 
   function handlePlayNext() {

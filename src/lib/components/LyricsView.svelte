@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from "../util/tooltip.svelte";
   import { untrack } from "svelte";
   import { lyricsState, type LyricsSearchStage } from "../state/lyrics.svelte";
   import { player } from "../state/player.svelte";
@@ -127,15 +128,20 @@
       <button
         onclick={() => adjustOffset(-1000)}
         aria-label="Advance lyrics by 1 second"
-        title="Make lyrics appear earlier"
+        use:tooltip={{ text: "Make lyrics appear earlier", placement: "bottom" }}
       >−</button>
-      <span class="offset-value" title={`Current offset: ${formatOffset(lyricsState.offsetMs)}`}>
+      <span
+        class="offset-value"
+        role="status"
+        aria-label="Current offset: {formatOffset(lyricsState.offsetMs)}"
+        use:tooltip={{ text: `Current offset: ${formatOffset(lyricsState.offsetMs)}`, placement: "bottom" }}
+      >
         {formatOffset(lyricsState.offsetMs)}
       </span>
       <button
         onclick={() => adjustOffset(1000)}
         aria-label="Delay lyrics by 1 second"
-        title="Make lyrics appear later"
+        use:tooltip={{ text: "Make lyrics appear later", placement: "bottom" }}
       >+</button>
     </div>
   {/if}

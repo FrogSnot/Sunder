@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from "../util/tooltip.svelte";
   import { onMount } from "svelte";
   import { getExplore, playTrack } from "../ipc/bridge";
   import { player } from "../state/player.svelte";
@@ -125,7 +126,7 @@
                 <span class="art-shade" aria-hidden="true"></span>
                 <span class="play-puck" aria-hidden="true"><span class="play-triangle"></span></span>
                 {#if downloads.isDownloaded(track.id)}
-                  <span class="dl-badge" aria-label="Downloaded" title="Available offline">
+                  <span class="dl-badge" aria-label="Downloaded" use:tooltip={{ text: "Available offline", placement: "top" }}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                   </span>
                 {/if}

@@ -23,6 +23,7 @@
   import DragGhost from "./DragGhost.svelte";
   import AiSuggest from "./AiSuggest.svelte";
   import WormText from "./WormText.svelte";
+  import { tooltip } from "../util/tooltip.svelte";
   import TrackArt from "./TrackArt.svelte";
   import { DragReorder } from "../util/dragReorder.svelte";
   import type { Playlist, Track } from "../types";
@@ -512,7 +513,10 @@
         {/if}
         {#if trackFilter.trim()}
           <span class="filter-count">{filteredTracks.length} of {detailTracks.length}</span>
-          <span class="filter-hint" title="Reordering is disabled while filtering. Clear the filter to reorder tracks">
+          <span
+            class="filter-hint"
+            use:tooltip={{ text: "Reordering is disabled while filtering. Clear the filter to reorder tracks", placement: "bottom" }}
+          >
             Reorder off
           </span>
         {/if}

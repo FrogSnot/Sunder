@@ -1,6 +1,7 @@
 <script lang="ts">
   import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp, setCookieSource, pickCookiesTxt } from "../ipc/bridge";
   import { cookies, COOKIE_SOURCES, isCookieSource } from "../state/cookies.svelte";
+  import { tooltip } from "../util/tooltip.svelte";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -378,7 +379,7 @@
           class:active-toggle={nav.focusMode}
           onclick={() => nav.toggleFocus(!!player.currentTrack)}
           aria-label="Focus View"
-          title="Focus View (V)"
+          use:tooltip={{ text: "Focus View (V)", placement: "bottom" }}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
@@ -421,7 +422,7 @@
             aria-label="Playback Controls"
             aria-haspopup="menu"
             aria-expanded={showMoreMenu}
-            title="Playback Controls"
+            use:tooltip={{ text: "Playback Controls", placement: "left" }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="5" r="1.5" fill="currentColor" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><circle cx="12" cy="19" r="1.5" fill="currentColor" />
