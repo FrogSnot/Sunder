@@ -164,6 +164,7 @@ pub fn run() {
             ipc::commands::retry_audio_device,
             ipc::commands::ytdlp_status,
             ipc::commands::ytdlp_update,
+            ipc::commands::set_cookie_source,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Sunder");

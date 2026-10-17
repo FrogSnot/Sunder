@@ -161,6 +161,7 @@ async fn run_ytdlp(app: &AppHandle, dir: &Path, track_id: &str) -> Result<PathBu
             "--concurrent-fragments",
             "4",
         ])
+        .args(crate::extraction::cookies::current_args())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

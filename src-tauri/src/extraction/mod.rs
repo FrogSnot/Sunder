@@ -1,3 +1,4 @@
+pub mod cookies;
 pub mod sidecar;
 pub mod ytdlp;
 

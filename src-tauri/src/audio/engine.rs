@@ -1638,10 +1638,16 @@ fn start_streaming(
             if attempt > 0 {
                 args.extend_from_slice(fallback_args);
             }
+            // Session cookie source (never persisted): --cookies-from-browser
+            // or --cookies <file> when the user set one this session.
+            let cookie_args = crate::extraction::cookies::current_args();
+            let cookie_refs: Vec<&std::ffi::OsStr> =
+                cookie_args.iter().map(std::ffi::OsStr::new).collect();
 
             let mut child = match Command::new(&bin)
                 .no_window()
                 .args(&args)
+                .args(&cookie_refs)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()

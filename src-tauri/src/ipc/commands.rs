@@ -311,6 +311,7 @@ pub async fn prefetch_track(
                 "--concurrent-fragments", "4",
                 "-q",
             ])
+            .args(crate::extraction::cookies::current_args())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
@@ -1048,4 +1049,24 @@ pub async fn ytdlp_update(app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Manager;
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     crate::extraction::ytdlp::update(&data_dir).await
+}
+
+/// Set the SESSION cookie source for yt-dlp spawns.
+///
+/// Wire format for `source`:
+/// - "none" (or empty): clear - no cookie args
+/// - "firefox" | "chrome" | "chromium" | "edge": --cookies-from-browser
+/// - any existing *.txt path: --cookies <path>
+///
+/// PRIVACY: held in memory only; never written to config.json or anywhere on
+/// disk. Every app restart resets it to none.
+///
+/// INTERFACE CONTRACT (mirrors src/lib/ipc/bridge.ts): on bot-wall failures
+/// the playback-error / load-failed event carries kind "ytdlp_botwall", which
+/// the frontend remedy pipeline maps to this command.
+#[tauri::command]
+pub fn set_cookie_source(source: String) -> Result<(), String> {
+    let parsed = crate::extraction::cookies::parse_cookie_source(&source)?;
+    crate::extraction::cookies::set(parsed);
+    Ok(())
 }

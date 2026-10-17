@@ -193,6 +193,24 @@ export async function exportPlaylist(playlistId: number, playlistName: string): 
   return true;
 }
 
+/** Bot-wall remedy: hand yt-dlp a cookie source for THIS SESSION only.
+ * sources: "none" | "firefox" | "chrome" | "chromium" | "edge" | an absolute
+ * cookies.txt path. Rejects (bad path, missing browser store) surface to the
+ * caller - the choice itself is never persisted anywhere. */
+export async function setCookieSource(source: string): Promise<void> {
+  await invoke("set_cookie_source", { source });
+}
+
+/** cookies.txt file picker (same dialog pattern as JSON playlist import). */
+export async function pickCookiesTxt(): Promise<string | null> {
+  const path = await open({
+    filters: [{ name: "cookies.txt", extensions: ["txt"] }],
+    multiple: false,
+    directory: false,
+  });
+  return typeof path === "string" ? path : null;
+}
+
 export async function importPlaylistJson(): Promise<Playlist | null> {
   const path = await open({
     filters: [{ name: "JSON", extensions: ["json"] }],

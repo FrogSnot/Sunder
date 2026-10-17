@@ -45,6 +45,7 @@ impl Extractor {
                 "--no-warnings",
                 "--ignore-errors",
             ])
+            .args(super::cookies::current_args())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -69,6 +70,7 @@ impl Extractor {
                 "--no-warnings",
                 "--ignore-errors",
             ])
+            .args(super::cookies::current_args())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -92,6 +94,7 @@ impl Extractor {
                 "--no-playlist",
                 "--no-warnings",
             ])
+            .args(super::cookies::current_args())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -129,6 +132,7 @@ impl Extractor {
                 &tmp.join(video_id).to_string_lossy(),
                 "--no-warnings",
             ])
+            .args(super::cookies::current_args())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -183,6 +187,7 @@ impl Extractor {
                 "--no-warnings",
                 "--ignore-errors",
             ])
+            .args(super::cookies::current_args())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()

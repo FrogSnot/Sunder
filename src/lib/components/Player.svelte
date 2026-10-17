@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp, setCookieSource, pickCookiesTxt } from "../ipc/bridge";
+  import { cookies, COOKIE_SOURCES, isCookieSource } from "../state/cookies.svelte";
   import { player } from "../state/player.svelte";
   import { config } from "../state/config.svelte";
   import ProgressBar from "./ProgressBar.svelte";
@@ -118,6 +119,39 @@
     }
   }
 
+  /**
+   * Bot-wall remedy: lend the user's browser YouTube cookies for THIS
+   * SESSION (never persisted), then retry the exact track that failed.
+   * A rejected apply (bad cookies.txt path) surfaces inline in the banner.
+   */
+  async function applyCookieSource() {
+    if (!cookies.beginApply()) return;
+    const source = cookies.selected;
+    try {
+      await setCookieSource(source);
+      cookies.finishApply(source);
+      toastState.add(
+        source === "none"
+          ? "Cookie source cleared. Retrying track"
+          : `Using ${isCookieSource(source) ? source : "cookies.txt"} cookies for this session. Retrying track`,
+        "info",
+        4000,
+      );
+      await retryFailed();
+    } catch (e) {
+      cookies.failApply(`Could not use that cookie source: ${e}`);
+    }
+  }
+
+  async function browseCookies() {
+    try {
+      const path = await pickCookiesTxt();
+      if (path) cookies.selected = path;
+    } catch (_) {
+      /* dialog cancelled or unavailable */
+    }
+  }
+
   async function toggleDiscord() {
     const newState = !config.current.discord_rpc_enabled;
     config.current.discord_rpc_enabled = newState;
@@ -171,7 +205,13 @@
           <div class="error-banner-left">
             <svg class="dl-error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             <div class="error-banner-text">
-              {#if player.errorKind === "ytdlp_blocked"}
+              {#if player.errorKind === "ytdlp_botwall"}
+                <span class="error-main">YouTube is asking this network to prove it's not a bot</span>
+                <span class="error-sub">
+                  You can lend it your browser's YouTube cookies for this session.
+                  {#if cookies.applied}Currently: {isCookieSource(cookies.applied) ? cookies.applied : "cookies.txt"}.{/if}
+                </span>
+              {:else if player.errorKind === "ytdlp_blocked"}
                 <span class="error-main">YouTube blocked this stream</span>
                 {#if player.ytdlpCanUpdate}
                   <span class="error-sub">
@@ -201,7 +241,38 @@
             </div>
           </div>
           <div class="error-banner-actions">
-            {#if player.errorKind === "ytdlp_blocked"}
+            {#if player.errorKind === "ytdlp_botwall"}
+              <div class="cookie-row">
+                <select
+                  class="cookie-select"
+                  bind:value={cookies.selected}
+                  aria-label="Cookie source"
+                  disabled={cookies.applying}
+                >
+                  {#each COOKIE_SOURCES as src (src.value)}
+                    <option value={src.value}>{src.label}</option>
+                  {/each}
+                  {#if !isCookieSource(cookies.selected)}
+                    <option value={cookies.selected}>cookies.txt</option>
+                  {/if}
+                </select>
+                <button class="error-btn alt-btn" onclick={browseCookies} disabled={cookies.applying} use:tooltip={{ text: "Pick a cookies.txt file", placement: "bottom" }} aria-label="Pick a cookies.txt file">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  File
+                </button>
+                {#if cookies.applying}
+                  <div class="dl-spinner"></div>
+                {:else}
+                  <button class="error-btn alt-btn cookie-apply" onclick={applyCookieSource}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Apply &amp; Retry
+                  </button>
+                {/if}
+              </div>
+              {#if cookies.applyError}
+                <div class="cookie-error" role="alert">{cookies.applyError}</div>
+              {/if}
+            {:else if player.errorKind === "ytdlp_blocked"}
               {#if player.ytdlpCanUpdate}
                 {#if player.ytdlpUpdating}
                   <div class="dl-spinner"></div>
@@ -714,6 +785,40 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+  }
+
+  /* Bot-wall cookie picker: select + file + apply inline with the banner. */
+  .cookie-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .cookie-select {
+    padding: 6px 10px;
+    background: var(--bg-overlay);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: var(--radius);
+    font-size: 0.8rem;
+    outline: none;
+    transition: border-color 200ms ease;
+  }
+
+  .cookie-select:focus {
+    border-color: var(--accent-dim);
+  }
+
+  .cookie-apply {
+    background: var(--accent);
+    color: var(--bg-base);
+  }
+
+  .cookie-error {
+    flex-basis: 100%;
+    font-size: 0.75rem;
+    color: var(--error);
   }
 
   .error-btn {
