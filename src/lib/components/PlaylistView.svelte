@@ -21,6 +21,7 @@
   import { downloads } from "../state/downloads.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import DragGhost from "./DragGhost.svelte";
+  import AiSuggest from "./AiSuggest.svelte";
   import WormText from "./WormText.svelte";
   import TrackArt from "./TrackArt.svelte";
   import { DragReorder } from "../util/dragReorder.svelte";
@@ -266,6 +267,7 @@
   }
 
   let showPlayAllMenu = $state(false);
+  let showAiSuggest = $state(false);
 
   async function playNow(tracks: Track[]) {
     if (tracks.length === 0) return;
@@ -415,7 +417,15 @@
             <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Play All
           </button>
-          {#if showPlayAllMenu}
+          {#if showAiSuggest && nav.activePlaylistId !== null}
+        <AiSuggest
+          playlistId={nav.activePlaylistId}
+          playlistName={nav.activePlaylistName ?? ""}
+          trackList={detailTracks.map((t) => ({ title: t.title, artist: t.artist }))}
+          onClose={() => (showAiSuggest = false)}
+        />
+      {/if}
+      {#if showPlayAllMenu}
             <div class="play-all-menu" role="menu">
               <button class="play-menu-item" role="menuitem" onclick={(e) => { e.stopPropagation(); playNow(detailTracks); closePlayAllMenu(); }}>
                 <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -458,6 +468,13 @@
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           Export
+        </button>
+        <button class="export-btn ai-btn" onclick={() => (showAiSuggest = true)} aria-label="Ask AI for song suggestions">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+            <path d="M12 2l1.9 5.7L19.5 9l-5.6 1.9L12 16l-1.9-5.1L4.5 9l5.6-1.3L12 2z" />
+            <path d="M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9L19 14z" />
+          </svg>
+          Ask AI
         </button>
         <button class="export-btn" onclick={handleRefresh} disabled={refreshing} aria-label="Refresh playlist from source">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1007,6 +1024,17 @@
   .export-btn svg {
     width: 14px;
     height: 14px;
+  }
+
+  /* Ask AI: same shell as the other header buttons; the sparkle picks up the
+     accent color so the AI entry point reads as special without shouting. */
+  .export-btn.ai-btn {
+    color: var(--accent-light);
+  }
+
+  .export-btn.ai-btn:hover {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .back-btn {
