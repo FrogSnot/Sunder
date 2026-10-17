@@ -535,6 +535,7 @@
             class:drop-before={reorder.dragOver === originalIndex && reorder.dropPosition === "before" && reorder.dragFrom !== originalIndex}
             class:drop-after={reorder.dragOver === originalIndex && reorder.dropPosition === "after" && reorder.dragFrom !== originalIndex}
             data-idx={originalIndex}
+            style="--i: {originalIndex}"
             onpointerdown={(e) => reorder.onPointerDown(e, originalIndex)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => ctxMenu.open(e, track)}
@@ -1077,9 +1078,19 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+    animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
+    animation-delay: calc(min(var(--i, 0), 15) * 30ms);
   }
 
   .track-row:active { cursor: grabbing; }
+
+  .track-row:hover .track-play {
+    transform: translateX(2px);
+  }
+
+  .track-play {
+    transition: transform 180ms var(--ease-out-expo), background 200ms ease;
+  }
 
   .track-row.filter-locked,
   .track-row.filter-locked:active {

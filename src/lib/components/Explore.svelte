@@ -316,6 +316,10 @@
     outline: none;
   }
 
+  .card:active {
+    transform: translateY(0) scale(0.98);
+  }
+
   .card.active {
     background: rgba(212, 160, 23, 0.08);
     border-color: rgba(212, 160, 23, 0.45);

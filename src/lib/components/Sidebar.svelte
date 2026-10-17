@@ -153,8 +153,28 @@
     z-index: 1;
   }
 
+  /* Active-nav underline: a small accent bar that slides in from the left
+     edge and stays while the tab is active. transform-only, 200ms. */
+  .nav-btn::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 18px;
+    border-radius: 2px;
+    background: var(--accent);
+    transform: translateY(-50%) scaleY(0);
+    transform-origin: center;
+    transition: transform 200ms var(--ease-out-expo);
+  }
+
   .nav-btn:hover {
     color: var(--text-primary);
+  }
+
+  .nav-btn:hover::before {
+    transform: translateY(-50%) scaleY(0.35);
   }
 
   .nav-btn:active {
@@ -163,6 +183,10 @@
 
   .nav-btn.active {
     color: var(--accent);
+  }
+
+  .nav-btn.active::before {
+    transform: translateY(-50%) scaleY(1);
   }
 
   .nav-btn svg {

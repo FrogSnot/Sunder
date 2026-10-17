@@ -401,6 +401,14 @@
     background: var(--bg-elevated);
   }
 
+  .track-row:hover .track-play {
+    transform: translateX(2px);
+  }
+
+  .track-play {
+    transition: transform 180ms var(--ease-out-expo), background 200ms ease;
+  }
+
   .track-row.active {
     background: var(--bg-elevated);
     border-left: 3px solid var(--accent);

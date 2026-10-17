@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fade } from "svelte/transition";
   import { searchLocal } from "../ipc/bridge";
   import { searchState } from "../state/search.svelte";
 
@@ -68,7 +69,7 @@
 {#if searchState.searching}
   <p class="search-status">Searching YouTube…</p>
 {:else if searchState.query.trim() && searchState.results.length > 0}
-  <p class="search-status meta">{searchState.results.length} result{searchState.results.length === 1 ? '' : 's'}</p>
+  <p class="search-status meta" in:fade={{ duration: 200 }}>{searchState.results.length} result{searchState.results.length === 1 ? '' : 's'}</p>
 {/if}
 
 <style>

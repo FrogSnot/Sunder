@@ -99,6 +99,42 @@ input {
   50% { transform: translateY(-6px); }
 }
 
+/* ---------------------------------------------------------------------
+   Motion layer: shared micro-interactions.
+   GPU-friendly transform/opacity only; 120-300ms range; suppressed under
+   prefers-reduced-motion by the global rule below. Rows that participate
+   in drag reordering (.drag-row) are excluded from hover lift so the
+   FLIP/drag measurement never sees a transformed row.
+   --------------------------------------------------------------------- */
+
+/* Button press feedback: subtle press-in on any interactive element. */
+button:active {
+  transform: scale(0.97);
+}
+
+button {
+  transition: transform 120ms var(--ease-spring);
+}
+
+/* Textareas/inputs: no press scaling (caret UX reads better without). */
+textarea:active,
+input:active {
+  transform: none;
+}
+
+/* Playing-track pulse: a soft breathing glow behind the accent bar on the
+   currently playing row indicator. Pure opacity, cheap on the GPU. */
+@keyframes activePulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* Gentle crossfade helper for view tab switches (content remounts). */
+@keyframes viewCrossfade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -168,5 +204,15 @@ input {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Hover/press motion and infinite pulses become no-ops entirely. */
+  button:active {
+    transform: none !important;
+  }
+
+  @keyframes activePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 1; }
   }
 }

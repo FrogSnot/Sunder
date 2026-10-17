@@ -340,6 +340,7 @@
             class:drop-after={reorder.dragOver === queueIdx && reorder.dropPosition === "after" && !reorder.isDragging(queueIdx)}
             data-idx={queueIdx}
             data-track-id={track.id}
+            style="--i: {ri}"
             onpointerdown={(e) => reorder.onPointerDown(e, queueIdx)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
@@ -398,6 +399,7 @@
             class:drop-after={reorder.dragOver === ri && reorder.dropPosition === "after" && !reorder.isDragging(ri)}
             data-idx={ri}
             data-track-id={track.id}
+            style="--i: {ri}"
             onpointerdown={(e) => reorder.onPointerDown(e, ri)}
             onpointercancel={() => reorder.onPointerCancel()}
             oncontextmenu={(e) => { e.preventDefault(); handleContext(e, track); }}
@@ -579,6 +581,11 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+    /* Entrance-only stagger: runs when the view mounts. Delayed rows fill
+       backwards so they start hidden, and the cap keeps deep virtualized
+       lists from stacking long delays. */
+    animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
+    animation-delay: calc(min(var(--i, 0), 15) * 30ms);
   }
 
   .drag-row.is-dragging,
@@ -639,8 +646,14 @@
     outline: none;
   }
 
-  .track-row:hover {
-    transform: none;
+  /* Hover feedback on a CHILD: the row's own rect (measured by the drag
+     engine) never transforms. */
+  .track-row:hover .track-play {
+    transform: translateX(2px);
+  }
+
+  .track-play {
+    transition: transform 180ms var(--ease-out-expo), background var(--transition);
   }
 
   .track-row:active { cursor: grabbing; }
@@ -649,6 +662,7 @@
     background: var(--bg-elevated);
     border-radius: var(--radius);
     border-left: 3px solid var(--accent);
+    animation: activePulse 2.4s ease-in-out infinite;
     margin-bottom: 4px;
     transform-origin: top center;
     display: flex;

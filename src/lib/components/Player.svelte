@@ -661,6 +661,8 @@
 
   .ctrl-btn.ctrl-sm.active-toggle {
     color: var(--accent);
+    /* Active toggles breathe softly so the on-state reads as live. */
+    animation: activePulse 2.4s ease-in-out infinite;
   }
 
   .ctrl-btn.ctrl-sm svg {
