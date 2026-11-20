@@ -51,6 +51,10 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --lib --locked
+
   frontend:
     name: Frontend build & type check
     runs-on: ubuntu-latest
