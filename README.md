@@ -113,17 +113,13 @@ sudo dpkg -i sunder_*_amd64.deb
 
 ### Fedora / RPM
 
-Download the official x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases). On Fedora, install it with DNF from the directory containing the downloaded file:
+Download the x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases):
 
 ```bash
 sudo dnf install ./Sunder-*.x86_64.rpm
 ```
 
-Use the exact downloaded filename if it differs from the pattern above. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
-
-Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package. DNF should install it through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement; the `-devel` package is not needed to run Sunder.
-
-Fedora and traditional Fedora-based distributions such as Nobara and Ultramarine Linux may use this RPM where its dependencies are available. The release workflow builds for x86_64 Linux; it does not test individual distributions or versions.
+Fedora-based distributions such as Nobara and Ultramarine Linux are untested; this RPM may work where its dependencies are available. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
 
 ### Other Linux
 
@@ -155,6 +151,9 @@ sudo pacman -S yt-dlp ffmpeg
 # Ubuntu/Debian
 sudo apt install yt-dlp ffmpeg
 
+# Fedora
+sudo dnf install yt-dlp ffmpeg-free
+
 # macOS
 brew install yt-dlp ffmpeg
 
@@ -162,13 +161,9 @@ brew install yt-dlp ffmpeg
 scoop install yt-dlp ffmpeg
 ```
 
-On Fedora, install [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) from the Fedora repositories:
+Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package, which DNF should install through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement. The `-devel` package is not needed to run Sunder.
 
-```bash
-sudo dnf install yt-dlp ffmpeg-free
-```
-
-Sunder uses yt-dlp and FFmpeg to convert offline downloads to MP3. Fedora's FFmpeg build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. If a download needs an unsupported codec, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance. Both tools must be available on PATH; installing the Sunder RPM alone does not replace this requirement.
+Sunder uses FFmpeg to convert offline downloads to MP3. Fedora's build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. For unsupported codecs, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance.
 
 For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
 
