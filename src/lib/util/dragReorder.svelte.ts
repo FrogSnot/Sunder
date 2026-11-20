@@ -161,6 +161,18 @@ export class DragReorder {
     return this.dragging || this._settling;
   }
 
+  /**
+   * Absorb rows that mounted since the last sync (virtualization). A view that
+   * updates its slice window in requestAnimationFrame mounts rows AFTER the
+   * container's scroll event has already run _syncRows, so it must call this
+   * once the DOM update has been applied (Svelte tick) to shift the new rows
+   * in the same frame they first paint. No-op when idle.
+   */
+  absorbRows() {
+    if (!this.dragging) return;
+    this._syncRows();
+  }
+
   destroy() {
     this._teardownListeners();
     this._pressActive = false;

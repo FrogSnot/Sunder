@@ -196,6 +196,10 @@
     flex: 1;
     overflow-y: auto;
     padding: 24px 24px 120px;
+    /* Virtualized lists swap real rows for spacers of equal height. Scroll
+       anchoring would treat that swap as a content change and silently rewrite
+       scrollTop, which the user sees as the list fighting the wheel. */
+    overflow-anchor: none;
   }
 
   .search-section {

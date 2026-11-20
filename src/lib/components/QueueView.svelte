@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { fly } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { quintOut } from "svelte/easing";
@@ -16,8 +16,16 @@
 
   let ctxMenu: ReturnType<typeof ContextMenu>;
 
-  const ROW_HEIGHT = 56;
+  // Virtualization geometry. The spacer height MUST equal the rendered pitch
+  // of a row (border-box height + the list's flex gap) or the real content
+  // slides under a stale spacer every time the slice window moves. The old
+  // hardcoded 56 was wrong: the row renders 53px plus a 2px gap = 55px, so
+  // each slice change shifted content and browser scroll anchoring snapped
+  // scrollTop back (the reported rubber band). Pitch is measured, not assumed.
   const OVERSCAN = 10;
+  const FULL_RENDER_LIMIT = 50; // below this, render the whole list
+  const FALLBACK_PITCH = 55; // used only until the first real measurement
+  const INTRO_MS = 1200; // entrance stagger window for the first mount
 
   let queue = $derived(player.queue);
   let currentIndex = $derived(player.queueIndex);
@@ -44,11 +52,89 @@
   let scrollContainer = $state<HTMLElement | null>(null);
   let scrollTop = $state(0);
   let viewportHeight = $state(600);
+  /**
+   * Measured row pitch (rendered row height + list gap). Everything in the
+   * slice math uses this, so the spacers can never disagree with the real
+   * layout.
+   */
+  let pitch = $state(FALLBACK_PITCH);
+  /** Content-space Y of each virtualized list, refreshed once per frame. */
+  let upNextOffset = $state(0);
+  let playedOffset = $state(0);
+  /**
+   * Entrance stagger is a FIRST-MOUNT effect only. Virtualized rows mount
+   * throughout a scroll; replaying itemSlideUp on them (with `backwards`
+   * holding them invisible through a stagger delay) is pure jitter.
+   */
+  let intro = $state(true);
+
+  let upNextListEl = $state<HTMLElement | null>(null);
+  let playedListEl = $state<HTMLElement | null>(null);
+  let gapCache: number | null = null;
+
+  /**
+   * Refresh list offsets in content space and the real row pitch. Uses rects
+   * against the scroll container rather than offsetTop: offsetTop is relative
+   * to the nearest offsetParent and is captured once by $derived (it is not
+   * reactive), so it went stale whenever the section above it changed height.
+   */
+  function measure() {
+    const el = scrollContainer;
+    if (!el) return;
+    const cTop = el.getBoundingClientRect().top;
+    const st = el.scrollTop;
+    // Offset = content-space Y of row 0, which is the list's own border-box top:
+    // the virtual spacers are the list's padding, so they sit INSIDE that box
+    // and never move it. Reading a rect (not offsetTop) keeps this correct when
+    // the section above changes height, and re-reading every frame keeps the
+    // two lists' offsets mutually consistent.
+    const contentY = (list: HTMLElement | null) =>
+      list ? list.getBoundingClientRect().top - cTop + st : 0;
+    const no = contentY(upNextListEl);
+    if (Math.abs(no - upNextOffset) > 0.5) upNextOffset = no;
+    const po = contentY(playedListEl);
+    if (Math.abs(po - playedOffset) > 0.5) playedOffset = po;
+
+    const list = upNextListEl ?? playedListEl;
+    const row = list?.querySelector<HTMLElement>(".track-row");
+    if (row) {
+      // The gap is static CSS: read the computed style once, not per frame.
+      if (gapCache === null && list) {
+        gapCache = parseFloat(getComputedStyle(list).rowGap) || 0;
+      }
+      const next = row.getBoundingClientRect().height + (gapCache ?? 0);
+      if (next > 1 && Math.abs(next - pitch) > 0.1) pitch = next;
+    }
+  }
+
+  /**
+   * Coalesce scroll handling into one update per frame: a single native scroll
+   * gesture delivers several events per frame, and each one previously wrote
+   * two $state values and re-derived both slices. Layout is only read here
+   * (never inside the event), so the scroll event stays cheap and the frame
+   * still flushes before paint (scroll events precede rAF in the same frame).
+   */
+  let frame = 0;
+  function readScroll() {
+    frame = 0;
+    const el = scrollContainer;
+    if (!el) return;
+    const st = el.scrollTop;
+    if (st !== scrollTop) scrollTop = st;
+    if (el.clientHeight !== viewportHeight) viewportHeight = el.clientHeight;
+    measure();
+    // The slice update above mounts/removes rows on the next flush. During a
+    // drag those rows must be shifted in the same frame they first paint, so
+    // hand them to the engine right after the DOM update (still pre-paint).
+    if (reorder.dragging) void tick().then(() => reorder.absorbRows());
+  }
 
   function onScroll() {
-    if (!scrollContainer) return;
-    scrollTop = scrollContainer.scrollTop;
-    viewportHeight = scrollContainer.clientHeight;
+    // Kill the intro before this frame's slice update so rows mounting during
+    // the scroll never pick up the entrance animation at all.
+    if (intro) intro = false;
+    if (frame) return;
+    frame = requestAnimationFrame(readScroll);
   }
 
   onMount(() => {
@@ -58,42 +144,42 @@
       viewportHeight = el.clientHeight;
       scrollTop = el.scrollTop;
       el.addEventListener("scroll", onScroll, { passive: true });
+      requestAnimationFrame(readScroll);
     }
+    const onResize = () => readScroll();
+    window.addEventListener("resize", onResize);
+    const introTimer = setTimeout(() => (intro = false), INTRO_MS);
+    // Row height depends on the font: re-measure once it is settled.
+    document.fonts?.ready.then(() => requestAnimationFrame(readScroll));
     return () => {
       el?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      clearTimeout(introTimer);
+      if (frame) cancelAnimationFrame(frame);
       reorder.destroy();
     };
   });
 
-  let upNextListEl = $state<HTMLElement | null>(null);
-  let upNextOffset = $derived.by(() => {
-    if (!upNextListEl || !scrollContainer) return 0;
-    return upNextListEl.offsetTop;
-  });
-
-  let upNextSlice = $derived.by(() => {
-    const total = upNext.length;
-    if (total <= 50) return { start: 0, end: total };
-    const relScroll = Math.max(0, scrollTop - upNextOffset);
-    const start = Math.max(0, Math.floor(relScroll / ROW_HEIGHT) - OVERSCAN);
-    const end = Math.min(total, Math.ceil((relScroll + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  /**
+   * Slice for one virtualized list. Clamped to [0, total] so a leading spacer
+   * can never grow past the section it stands for (the old code clamped the
+   * bottom of the window but not the top, so scrolling past a section inflated
+   * scrollHeight and the scrollbar length oscillated).
+   */
+  function sliceFor(total: number, offset: number) {
+    if (total <= 0) return { start: 0, end: 0 };
+    if (total <= FULL_RENDER_LIMIT) return { start: 0, end: total };
+    const rel = scrollTop - offset;
+    const start = Math.min(total - 1, Math.max(0, Math.floor(rel / pitch) - OVERSCAN));
+    const end = Math.min(
+      total,
+      Math.max(start + 1, Math.ceil((rel + viewportHeight) / pitch) + OVERSCAN),
+    );
     return { start, end };
-  });
+  }
 
-  let playedListEl = $state<HTMLElement | null>(null);
-  let playedOffset = $derived.by(() => {
-    if (!playedListEl || !scrollContainer) return 0;
-    return playedListEl.offsetTop;
-  });
-
-  let playedSlice = $derived.by(() => {
-    const total = played.length;
-    if (total <= 50) return { start: 0, end: total };
-    const relScroll = Math.max(0, scrollTop - playedOffset);
-    const start = Math.max(0, Math.floor(relScroll / ROW_HEIGHT) - OVERSCAN);
-    const end = Math.min(total, Math.ceil((relScroll + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
-    return { start, end };
-  });
+  let upNextSlice = $derived(sliceFor(upNext.length, upNextOffset));
+  let playedSlice = $derived(sliceFor(played.length, playedOffset));
 
   function formatDuration(secs: number): string {
     if (!secs) return "--:--";
@@ -224,7 +310,7 @@
 <ContextMenu bind:this={ctxMenu} />
 <DragGhost {reorder} />
 
-<div class="queue-view">
+<div class="queue-view" class:is-intro={intro}>
   <div class="sr-only" role="status" aria-live="assertive">{live}</div>
   <div class="queue-header">
     <h2 class="queue-title">Queue</h2>
@@ -332,10 +418,11 @@
 
     {#if upNext.length > 0}
       <div class="section-label next-label">Next Up <span class="section-count">{upNext.length}</span></div>
-      <div class="track-list" bind:this={upNextListEl}>
-        {#if upNextSlice.start > 0}
-          <div style="height: {upNextSlice.start * ROW_HEIGHT}px" aria-hidden="true"></div>
-        {/if}
+      <div
+        class="track-list"
+        bind:this={upNextListEl}
+        style="padding-top: {upNextSlice.start * pitch}px; padding-bottom: {(upNext.length - upNextSlice.end) * pitch}px"
+      >
         {#each upNext.slice(upNextSlice.start, upNextSlice.end) as track, i (track.id)}
           {@const ri = upNextSlice.start + i}
           {@const queueIdx = currentIndex + 1 + ri}
@@ -384,18 +471,16 @@
             </button>
           </div>
         {/each}
-        {#if upNextSlice.end < upNext.length}
-          <div style="height: {(upNext.length - upNextSlice.end) * ROW_HEIGHT}px" aria-hidden="true"></div>
-        {/if}
       </div>
     {/if}
 
     {#if played.length > 0}
       <div class="section-label played-label">Previously Played</div>
-      <div class="track-list played-list" bind:this={playedListEl}>
-        {#if playedSlice.start > 0}
-          <div style="height: {playedSlice.start * ROW_HEIGHT}px" aria-hidden="true"></div>
-        {/if}
+      <div
+        class="track-list played-list"
+        bind:this={playedListEl}
+        style="padding-top: {playedSlice.start * pitch}px; padding-bottom: {(played.length - playedSlice.end) * pitch}px"
+      >
         {#each played.slice(playedSlice.start, playedSlice.end) as track, i (track.id)}
           {@const ri = playedSlice.start + i}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -443,9 +528,6 @@
             </button>
           </div>
         {/each}
-        {#if playedSlice.end < played.length}
-          <div style="height: {(played.length - playedSlice.end) * ROW_HEIGHT}px" aria-hidden="true"></div>
-        {/if}
       </div>
     {/if}
   {/if}
@@ -589,9 +671,14 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
-    /* Entrance-only stagger: runs when the view mounts. Delayed rows fill
-       backwards so they start hidden, and the cap keeps deep virtualized
-       lists from stacking long delays. */
+  }
+
+  /* Entrance stagger is a FIRST-MOUNT effect only. Virtualized rows mount
+     continuously while scrolling; replaying itemSlideUp on them (with
+     `backwards` holding them invisible through the stagger delay) is exactly
+     the flicker the maintainer reported, so it is scoped to .is-intro, which
+     the view drops on the first scroll frame. */
+  .queue-view.is-intro .track-row {
     animation: itemSlideUp 350ms var(--ease-out-expo) backwards;
     animation-delay: calc(min(var(--i, 0), 15) * 30ms);
   }
