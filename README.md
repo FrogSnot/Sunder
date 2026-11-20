@@ -152,7 +152,7 @@ sudo pacman -S yt-dlp ffmpeg
 sudo apt install yt-dlp ffmpeg
 
 # Fedora
-sudo dnf install yt-dlp ffmpeg-free
+sudo dnf install yt-dlp ffmpeg-free pipewire-libs alsa-lib
 
 # macOS
 brew install yt-dlp ffmpeg
@@ -162,6 +162,8 @@ scoop install yt-dlp ffmpeg
 ```
 
 Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package, which DNF should install through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement. The `-devel` package is not needed to run Sunder.
+
+The Fedora command also installs the PipeWire and ALSA libraries used by the Sunder binary. The v1.4.14 RPM does not declare these two library requirements.
 
 Sunder uses FFmpeg to convert offline downloads to MP3. Fedora's build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. For unsupported codecs, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance.
 
