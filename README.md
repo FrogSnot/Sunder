@@ -181,6 +181,8 @@ PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if
 
 ## Development
 
+See [Architecture](docs/ARCHITECTURE.md) for the code organization and playback pipeline.
+
 ### Prerequisites
 
 - **Rust** (stable, 2021 edition)
