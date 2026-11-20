@@ -15,7 +15,7 @@ pub async fn set_config(
     patch: ConfigPatch,
     track: Option<Track>,
     app: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     use tauri::Manager;
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -34,6 +34,7 @@ pub async fn set_config(
                     }
                 }
             })
+            .map(|warning| warning.map(|err| err.to_string()))
             .map_err(|err| format!("Could not save settings: {err}"))
     })
     .await

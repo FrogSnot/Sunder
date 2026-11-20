@@ -93,8 +93,12 @@ class ConfigState {
       if (Object.keys(patch).length === 0) return;
 
       const track = patch.discord_rpc_enabled && player.isPlaying ? player.currentTrack : null;
-      await invoke("set_config", { patch, track: $state.snapshot(track) });
+      const warning = await invoke<string | null>("set_config", { patch, track: $state.snapshot(track) });
       Object.assign(this.current, patch);
+      if (warning) {
+        console.warn("Settings directory sync failed:", warning);
+        toastState.add("Settings applied, but may be lost after a system crash", "error");
+      }
     }).catch((e) => {
       console.error("Failed to save config:", e);
       toastState.add("Could not save settings", "error");

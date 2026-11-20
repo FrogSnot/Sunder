@@ -95,16 +95,55 @@ impl ConfigManager {
         self.config.read().unwrap().clone()
     }
 
-    pub fn update(&self, patch: ConfigPatch, after_save: impl FnOnce()) -> io::Result<()> {
+    /// An error means replacement failed. A warning means it succeeded but
+    /// synchronization of the directory entry failed.
+    pub fn update(
+        &self,
+        patch: ConfigPatch,
+        after_save: impl FnOnce(),
+    ) -> io::Result<Option<io::Error>> {
+        self.update_with_sync(patch, after_save, sync_config_directory)
+    }
+
+    fn update_with_sync(
+        &self,
+        patch: ConfigPatch,
+        after_save: impl FnOnce(),
+        sync_directory: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> io::Result<Option<io::Error>> {
         let _writer = self.writer.lock().unwrap();
         let next = patch.apply(self.get());
         let contents = serde_json::to_vec_pretty(&next)?;
         replace_config(&self.path, |file| file.write_all(&contents))?;
+        let warning = sync_directory(&self.path.with_file_name(".")).err();
         *self.config.write().unwrap() = next;
         // Apply live settings in the same order as their saved values.
         after_save();
+        Ok(warning)
+    }
+}
+
+#[cfg(unix)]
+fn sync_config_directory(directory: &Path) -> io::Result<()> {
+    let directory = File::open(directory)?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        // File::sync_all uses F_FULLFSYNC on macOS. Use fsync for the directory.
+        // SAFETY: The open directory owns the descriptor for this call.
+        if unsafe { libc::fsync(directory.as_raw_fd()) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(())
     }
+    #[cfg(not(target_os = "macos"))]
+    directory.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_config_directory(_directory: &Path) -> io::Result<()> {
+    // There is no portable directory sync on Windows. Keep file sync + rename.
+    Ok(())
 }
 
 fn replace_config(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
@@ -320,5 +359,27 @@ mod tests {
         assert!(path.is_dir());
         assert!(!manager.get().discord_rpc_enabled);
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn directory_sync_failure_keeps_committed_settings() {
+        let dir = TestDir::new();
+        fs::write(dir.0.join("config.json"), r#"{"volume":0.3}"#).unwrap();
+        let manager = ConfigManager::new(&dir.0);
+        let patch = serde_json::from_str(r#"{"discord_rpc_enabled":true}"#).unwrap();
+        let mut applied = false;
+        let warning = manager
+            .update_with_sync(
+                patch,
+                || applied = true,
+                |path| {
+                    assert!(ConfigManager::new(path).get().discord_rpc_enabled);
+                    Err(io::Error::other("injected directory sync failure"))
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(warning.to_string(), "injected directory sync failure");
+        assert!(applied && manager.get().discord_rpc_enabled);
     }
 }
