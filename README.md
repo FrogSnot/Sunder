@@ -121,6 +121,8 @@ sudo dnf install ./Sunder-*.x86_64.rpm
 
 Use the exact downloaded filename if it differs from the pattern above. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
 
+Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package. DNF should install it through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement; the `-devel` package is not needed to run Sunder.
+
 Fedora or Fedora-based distributions such as Nobara and Bazzite can use this RPM where its dependencies are available. Image-based distributions use different installation methods; follow your distribution's [RPM installation guidance](https://docs.bazzite.gg/Installing_and_Managing_Software/rpm-ostree/#installing-rpm-files) rather than the DNF command above. The release workflow builds for x86_64 Linux; it does not test individual distributions or versions.
 
 ### Other Linux
@@ -160,7 +162,13 @@ brew install yt-dlp ffmpeg
 scoop install yt-dlp ffmpeg
 ```
 
-For Fedora / RPM installations, install yt-dlp using its [installation guide](https://github.com/yt-dlp/yt-dlp/wiki/Installation) and FFmpeg using the Fedora package link on the [official FFmpeg download page](https://ffmpeg.org/download.html#build-linux). On Fedora-based distributions, follow your distribution's guidance for installing multimedia packages. Both tools must be available on PATH; installing the Sunder RPM alone does not replace this requirement.
+On Fedora, install [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) from the Fedora repositories:
+
+```bash
+sudo dnf install yt-dlp ffmpeg-free
+```
+
+Sunder uses yt-dlp and FFmpeg to convert offline downloads to MP3. Fedora's FFmpeg build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. If a download needs an unsupported codec, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance. Both tools must be available on PATH; installing the Sunder RPM alone does not replace this requirement.
 
 For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
 
