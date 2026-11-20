@@ -869,11 +869,7 @@ fn looks_like_song(track: &Track) -> bool {
         "documentary",
         "interview",
     ];
-    if duration > 480.0 && long_form.iter().any(|needle| title.contains(needle)) {
-        return false;
-    }
-
-    true
+    !(duration > 480.0 && long_form.iter().any(|needle| title.contains(needle)))
 }
 
 fn clean_track_title(title: &str) -> String {
