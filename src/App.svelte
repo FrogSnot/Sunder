@@ -21,7 +21,6 @@
     playNext,
     playPrev,
     playTrack,
-    restoreQueue,
     loadDownloads
   } from "./lib/ipc/bridge";
   import { player } from "./lib/state/player.svelte";
@@ -38,7 +37,7 @@
 
   onMount(() => {
     cleanup = initProgressListener();
-    config.load().then(() => restoreQueue());
+    config.load().catch(console.error);
     audioRecovery.init().catch(console.error);
     loadDownloads();
     window.addEventListener("keydown", handleKeyDown);

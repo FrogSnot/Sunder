@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { player } from "./player.svelte";
-import { setVolume, setEqEnabled, setEqGains, setSpeed, setRepeatMode } from "../ipc/bridge";
+import { restoreQueue, setVolume, setEqEnabled, setEqGains, setSpeed, setRepeatMode } from "../ipc/bridge";
+import { toastState } from "./toast.svelte";
 
 export interface AppConfig {
   volume: number;
@@ -29,13 +30,18 @@ const defaults: AppConfig = {
 class ConfigState {
   current = $state<AppConfig>({ ...defaults });
   loaded = $state(false);
+  private pendingSave = Promise.resolve();
+  private queueRestoreFailed = false;
 
   async load() {
-    try {
-      this.current = await invoke<AppConfig>("get_config");
-    } catch {
-      this.current = { ...defaults };
-    }
+    this.pendingSave = this.pendingSave.then(async () => {
+      try {
+        this.current = await invoke<AppConfig>("get_config");
+      } catch {
+        this.current = { ...defaults };
+      }
+    });
+    await this.pendingSave;
 
     // Capture saved values before any async work so progress events
     // can't overwrite them via updateFromProgress().
@@ -65,20 +71,51 @@ class ConfigState {
       console.error("Failed to sync config to backend:", e);
     }
 
+    // Start autosaving after the saved queue and its index have been restored.
+    try {
+      await restoreQueue();
+    } catch (e) {
+      this.queueRestoreFailed = true;
+      console.error("Failed to restore queue:", e);
+      toastState.add("Could not restore the saved queue", "error");
+    }
     this.loaded = true;
   }
 
-  async save() {
-    try {
-      await invoke("set_config", { config: $state.snapshot(this.current) });
-    } catch (e) {
+  private enqueueSave(settings: () => Partial<AppConfig>) {
+    // Compare against the last successful save after earlier requests settle.
+    this.pendingSave = this.pendingSave.then(async () => {
+      const patch = Object.fromEntries(
+        Object.entries(settings()).filter(([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(this.current[key as keyof AppConfig]),
+        ),
+      );
+      if (Object.keys(patch).length === 0) return;
+
+      const track = patch.discord_rpc_enabled && player.isPlaying ? player.currentTrack : null;
+      await invoke("set_config", { patch, track: $state.snapshot(track) });
+      Object.assign(this.current, patch);
+    }).catch((e) => {
       console.error("Failed to save config:", e);
-    }
+      toastState.add("Could not save settings", "error");
+    });
   }
 
-  async update(partial: Partial<AppConfig>) {
-    Object.assign(this.current, partial);
-    await this.save();
+  toggle(key: "notifications_enabled" | "discord_rpc_enabled") {
+    this.enqueueSave(() => ({ [key]: !this.current[key] }));
+  }
+
+  update(partial: Partial<AppConfig>) {
+    // Keep the on-disk queue if restoration failed and no new queue was started.
+    if (this.queueRestoreFailed) {
+      if (partial.saved_queue?.length) {
+        this.queueRestoreFailed = false;
+      } else {
+        delete partial.saved_queue;
+        delete partial.saved_queue_index;
+      }
+    }
+    this.enqueueSave(() => partial);
   }
 }
 

@@ -2,7 +2,7 @@ use tauri::State;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 
-use crate::config::{AppConfig, ConfigManager};
+use crate::config::{AppConfig, ConfigManager, ConfigPatch};
 use crate::discord::{DiscordPresence, PresenceCommand};
 
 #[tauri::command]
@@ -11,8 +11,33 @@ pub fn get_config(config: State<'_, ConfigManager>) -> AppConfig {
 }
 
 #[tauri::command]
-pub fn set_config(config: AppConfig, manager: State<'_, ConfigManager>) {
-    manager.update(config);
+pub async fn set_config(
+    patch: ConfigPatch,
+    track: Option<Track>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri::Manager;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let enabled = patch.discord_rpc_enabled;
+        app.state::<ConfigManager>()
+            .update(patch, || {
+                if let Some(enabled) = enabled {
+                    let discord = app.state::<DiscordPresence>();
+                    discord.set_enabled(enabled);
+                    if let (true, Some(track)) = (enabled, track) {
+                        discord.send(PresenceCommand::SetActivity {
+                            title: track.title,
+                            artist: track.artist,
+                            thumbnail: track.thumbnail,
+                        });
+                    }
+                }
+            })
+            .map_err(|err| format!("Could not save settings: {err}"))
+    })
+    .await
+    .map_err(|err| format!("Settings save failed: {err}"))?
 }
 
 use crate::audio::AudioHandle;
@@ -956,31 +981,6 @@ pub async fn import_playlist_json(
         thumbnail: String::new(),
         track_count: imported.tracks.len() as i64,
     })
-}
-
-#[tauri::command]
-pub async fn set_discord_rpc(
-    enabled: bool,
-    title: Option<String>,
-    artist: Option<String>,
-    thumbnail: Option<String>,
-    discord: State<'_, DiscordPresence>,
-    config_mgr: State<'_, ConfigManager>,
-) -> Result<(), String> {
-    discord.set_enabled(enabled);
-    let mut cfg = config_mgr.get();
-    cfg.discord_rpc_enabled = enabled;
-    config_mgr.update(cfg);
-    if enabled {
-        if let (Some(t), Some(a)) = (title, artist) {
-            discord.send(PresenceCommand::SetActivity {
-                title: t,
-                artist: a,
-                thumbnail: thumbnail.unwrap_or_default(),
-            });
-        }
-    }
-    Ok(())
 }
 
 #[tauri::command]

@@ -221,15 +221,6 @@ export async function importPlaylistJson(): Promise<Playlist | null> {
   return invoke<Playlist>("import_playlist_json", { path });
 }
 
-export async function setDiscordRpc(enabled: boolean, track?: Track): Promise<void> {
-  await invoke("set_discord_rpc", {
-    enabled,
-    title: track?.title ?? null,
-    artist: track?.artist ?? null,
-    thumbnail: track?.thumbnail ?? null,
-  });
-}
-
 export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
   return invoke<Track[]>("get_tracks_by_ids", { trackIds });
 }
