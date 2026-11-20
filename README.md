@@ -123,7 +123,7 @@ Use the exact downloaded filename if it differs from the pattern above. Install 
 
 Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package. DNF should install it through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement; the `-devel` package is not needed to run Sunder.
 
-Fedora or Fedora-based distributions such as Nobara and Bazzite can use this RPM where its dependencies are available. Image-based distributions use different installation methods; follow your distribution's [RPM installation guidance](https://docs.bazzite.gg/Installing_and_Managing_Software/rpm-ostree/#installing-rpm-files) rather than the DNF command above. The release workflow builds for x86_64 Linux; it does not test individual distributions or versions.
+Fedora and traditional Fedora-based distributions such as Nobara and Ultramarine Linux may use this RPM where its dependencies are available. The release workflow builds for x86_64 Linux; it does not test individual distributions or versions.
 
 ### Other Linux
 
