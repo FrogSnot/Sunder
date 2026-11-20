@@ -111,6 +111,18 @@ Download the `.deb` from [Releases](https://github.com/FrogSnot/Sunder/releases)
 sudo dpkg -i sunder_*_amd64.deb
 ```
 
+### Fedora / RPM
+
+Download the official x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases). On Fedora, install it with DNF from the directory containing the downloaded file:
+
+```bash
+sudo dnf install ./Sunder-*.x86_64.rpm
+```
+
+Use the exact downloaded filename if it differs from the pattern above. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
+
+Fedora or Fedora-based distributions such as Nobara and Bazzite can use this RPM where its dependencies are available. Image-based distributions use different installation methods; follow your distribution's [RPM installation guidance](https://docs.bazzite.gg/Installing_and_Managing_Software/rpm-ostree/#installing-rpm-files) rather than the DNF command above. The release workflow builds for x86_64 Linux; it does not test individual distributions or versions.
+
 ### Other Linux
 
 Download the `.AppImage` from [Releases](https://github.com/FrogSnot/Sunder/releases):
@@ -147,6 +159,8 @@ brew install yt-dlp ffmpeg
 # Windows (scoop)
 scoop install yt-dlp ffmpeg
 ```
+
+For Fedora / RPM installations, install yt-dlp using its [installation guide](https://github.com/yt-dlp/yt-dlp/wiki/Installation) and FFmpeg using the Fedora package link on the [official FFmpeg download page](https://ffmpeg.org/download.html#build-linux). On Fedora-based distributions, follow your distribution's guidance for installing multimedia packages. Both tools must be available on PATH; installing the Sunder RPM alone does not replace this requirement.
 
 For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
 
