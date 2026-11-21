@@ -111,6 +111,16 @@ Download the `.deb` from [Releases](https://github.com/FrogSnot/Sunder/releases)
 sudo dpkg -i sunder_*_amd64.deb
 ```
 
+### Fedora / RPM
+
+Download the x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases):
+
+```bash
+sudo dnf install ./Sunder-*.x86_64.rpm
+```
+
+Fedora-based distributions such as Nobara and Ultramarine Linux are untested; this RPM may work where its dependencies are available. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
+
 ### Other Linux
 
 Download the `.AppImage` from [Releases](https://github.com/FrogSnot/Sunder/releases):
@@ -141,12 +151,21 @@ sudo pacman -S yt-dlp ffmpeg
 # Ubuntu/Debian
 sudo apt install yt-dlp ffmpeg
 
+# Fedora
+sudo dnf install yt-dlp ffmpeg-free pipewire-libs alsa-lib
+
 # macOS
 brew install yt-dlp ffmpeg
 
 # Windows (scoop)
 scoop install yt-dlp ffmpeg
 ```
+
+Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package, which DNF should install through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement. The `-devel` package is not needed to run Sunder.
+
+The Fedora command also installs the PipeWire and ALSA libraries used by the Sunder binary. The v1.4.14 RPM does not declare these two library requirements.
+
+Sunder uses FFmpeg to convert offline downloads to MP3. Fedora's build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. For unsupported codecs, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance.
 
 For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
 
