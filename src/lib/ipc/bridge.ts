@@ -5,6 +5,7 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings, DownloadEvent } from "../types";
 import { player } from "../state/player.svelte";
 import { config } from "../state/config.svelte";
+import { clampQueueIndex } from "../util/queuePreserve";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
 import { downloads } from "../state/downloads.svelte";
 
@@ -221,15 +222,6 @@ export async function importPlaylistJson(): Promise<Playlist | null> {
   return invoke<Playlist>("import_playlist_json", { path });
 }
 
-export async function setDiscordRpc(enabled: boolean, track?: Track): Promise<void> {
-  await invoke("set_discord_rpc", {
-    enabled,
-    title: track?.title ?? null,
-    artist: track?.artist ?? null,
-    thumbnail: track?.thumbnail ?? null,
-  });
-}
-
 export async function getTracksByIds(trackIds: string[]): Promise<Track[]> {
   return invoke<Track[]>("get_tracks_by_ids", { trackIds });
 }
@@ -275,18 +267,54 @@ export async function loadDownloads(): Promise<void> {
   }
 }
 
-export async function restoreQueue(): Promise<void> {
+export interface QueueRestoreResult {
+  /** Ids the saved queue asked for. */
+  requested: number;
+  /** Tracks the local library could actually supply. */
+  restored: number;
+  /**
+   * True when the restore was abandoned because the queue changed while
+   * get_tracks_by_ids was in flight. Nothing was written: the user's queue,
+   * index and current track all stand as the user left them.
+   */
+  discarded: boolean;
+}
+
+export async function restoreQueue(): Promise<QueueRestoreResult> {
   const { saved_queue, saved_queue_index } = config.current;
-  if (!saved_queue?.length) return;
+  const requested = saved_queue?.length ?? 0;
+  if (!requested) return { requested: 0, restored: 0, discarded: false };
+  // Snapshot the generation BEFORE the await. Every whole-queue replacement
+  // (playing an album, clearing, shuffling, reordering) goes through the
+  // player.queue setter and bumps it, so a changed value proves the user
+  // replaced the queue while this restore was in flight.
+  const generation = player.queueGeneration;
   const tracks = await getTracksByIds(saved_queue);
-  if (tracks.length === 0) return;
+  // Discard before ANY write. load() races this against a timeout and turns
+  // autosave on when it fires, so by now the user may already have a queue of
+  // their own; overwriting it here would silently revert their choice and the
+  // debounced save would then persist the stale queue over theirs.
+  if (player.queueGeneration !== generation) {
+    return { requested, restored: 0, discarded: true };
+  }
+  if (tracks.length === 0) return { requested, restored: 0, discarded: false };
   player.queue = tracks;
-  player.queueIndex = Math.min(Math.max(saved_queue_index ?? -1, -1), tracks.length - 1);
+  // The saved index points into the ORIGINAL queue. get_tracks_by_ids drops
+  // ids missing from the local library, so that offset no longer addresses the
+  // same track once the queue shrinks: resolve the wanted track by id first and
+  // only fall back to clamping when the track itself is gone.
+  const savedIndex = clampQueueIndex(saved_queue_index ?? -1, requested);
+  const wanted = savedIndex >= 0 ? saved_queue[savedIndex] : undefined;
+  const restoredIndex = wanted ? tracks.findIndex((t) => t.id === wanted) : -1;
+  player.queueIndex =
+    restoredIndex >= 0 ? restoredIndex : clampQueueIndex(savedIndex, tracks.length);
   if (player.queueIndex >= 0) {
     player.currentTrack = tracks[player.queueIndex];
   }
-  // Restore a persisted playlist context if it still matches the queue.
+  // Restore a persisted playlist context if it still matches the queue. Only
+  // reached when the result was actually applied.
   player.restorePersistedContext();
+  return { requested, restored: tracks.length, discarded: false };
 }
 
 export interface UpdateInfo {

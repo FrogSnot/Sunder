@@ -45,11 +45,15 @@ jobs:
 
       - name: cargo check
         working-directory: src-tauri
-        run: cargo check --all-targets
+        run: cargo check --all-targets --locked
 
       - name: cargo clippy
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test --lib --locked
 
   frontend:
     name: Frontend build & type check

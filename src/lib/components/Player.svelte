@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, setDiscordRpc, updateYtdlp, setCookieSource, pickCookiesTxt } from "../ipc/bridge";
+  import { pause, resume, stop, playTrack, playNext, playPrev, search, setSpeed, updateYtdlp, setCookieSource, pickCookiesTxt } from "../ipc/bridge";
   import { cookies, COOKIE_SOURCES, isCookieSource } from "../state/cookies.svelte";
   import { tooltip } from "../util/tooltip.svelte";
   import { player } from "../state/player.svelte";
@@ -151,13 +151,6 @@
     } catch (_) {
       /* dialog cancelled or unavailable */
     }
-  }
-
-  async function toggleDiscord() {
-    const newState = !config.current.discord_rpc_enabled;
-    config.current.discord_rpc_enabled = newState;
-    await setDiscordRpc(newState, player.currentTrack && player.isPlaying ? player.currentTrack : undefined);
-    config.save();
   }
 
   let hasTrack = $derived(player.currentTrack !== null);
@@ -456,7 +449,7 @@
               <button
                 class="more-menu-item"
                 class:active={config.current.notifications_enabled}
-                onclick={() => config.update({ notifications_enabled: !config.current.notifications_enabled })}
+                onclick={() => config.toggle("notifications_enabled")}
                 role="menuitem"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -469,7 +462,7 @@
               <button
                 class="more-menu-item"
                 class:active={config.current.discord_rpc_enabled}
-                onclick={toggleDiscord}
+                onclick={() => config.toggle("discord_rpc_enabled")}
                 role="menuitem"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

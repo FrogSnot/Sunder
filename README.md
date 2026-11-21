@@ -119,7 +119,7 @@ Download the x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/re
 sudo dnf install ./Sunder-*.x86_64.rpm
 ```
 
-Fedora-based distributions such as Nobara and Ultramarine Linux are untested; this RPM may work where its dependencies are available. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
+The RPM declares the libraries Sunder links against, so DNF resolves them for you. Fedora-based distributions such as Nobara and Ultramarine Linux are untested; they may work where those dependencies are available. Install the [runtime dependencies](#runtime-dependencies) before launching Sunder.
 
 ### Other Linux
 
@@ -152,7 +152,7 @@ sudo pacman -S yt-dlp ffmpeg
 sudo apt install yt-dlp ffmpeg
 
 # Fedora
-sudo dnf install yt-dlp ffmpeg-free pipewire-libs alsa-lib
+sudo dnf install yt-dlp ffmpeg-free
 
 # macOS
 brew install yt-dlp ffmpeg
@@ -161,9 +161,7 @@ brew install yt-dlp ffmpeg
 scoop install yt-dlp ffmpeg
 ```
 
-Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. Sunder also requires the [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package, which DNF should install through the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement. The `-devel` package is not needed to run Sunder.
-
-The Fedora command also installs the PipeWire and ALSA libraries used by the Sunder binary. The v1.4.14 RPM does not declare these two library requirements.
+Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. The [webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/) runtime package is pulled in by the RPM's `libwebkit2gtk-4.1.so.0()(64bit)` requirement; the `-devel` package is not needed to run Sunder.
 
 Sunder uses FFmpeg to convert offline downloads to MP3. Fedora's build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. For unsupported codecs, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance.
 
@@ -172,11 +170,13 @@ For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it 
 ```bash
 # Arch
 sudo pacman -S alsa-plugins
-# Ubuntu/Debian
-sudo apt install alsa-plugins
+# Ubuntu/Debian (the plugin package is libasound2-plugins; alsa-plugins is the Arch name)
+sudo apt install libasound2-plugins
+# Fedora
+sudo dnf install alsa-plugins-pulseaudio
 ```
 
-PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA, which uses the first enumerated card and may not be the sink you've marked as default in pavucontrol.
+PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA, which uses the first enumerated card and may not be the sink you've marked as default in pavucontrol. Both the `.deb` and the `.rpm` ship this plugin package as a *Recommends*, so it is installed by default but can be skipped on a minimal system.
 
 ## Tech Stack
 
@@ -199,6 +199,8 @@ PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if
 5. **Size**: The release binary is ~15MB. Electron apps ship 150MB+ of Chromium.
 
 ## Development
+
+See [Architecture](docs/ARCHITECTURE.md) for the code organization and playback pipeline.
 
 ### Prerequisites
 
