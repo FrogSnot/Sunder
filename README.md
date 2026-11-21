@@ -111,6 +111,23 @@ Download the `.deb` from [Releases](https://github.com/FrogSnot/Sunder/releases)
 sudo dpkg -i sunder_*_amd64.deb
 ```
 
+### Fedora / RPM
+
+Download the x86_64 `.rpm` from [Releases](https://github.com/FrogSnot/Sunder/releases):
+
+```bash
+sudo dnf install ./Sunder-*.x86_64.rpm
+```
+
+The RPM declares the shared libraries Sunder links against - including its audio
+(`libasound`, `libpipewire`), GTK (`libgtk-3`, `libgdk-3`, `libgdk_pixbuf`),
+GLib (`libglib-2.0`, `libgio-2.0`, `libgobject-2.0`), `libsoup3`,
+`libjavascriptcoregtk-4.1`, `libwebkit2gtk-4.1`, `libcairo` and `libdbus-1`
+requirements - so DNF resolves them for you. Fedora-based distributions such as
+Nobara and Ultramarine Linux are untested; they may work where those
+dependencies are available. Install the [runtime dependencies](#runtime-dependencies)
+before launching Sunder.
+
 ### Other Linux
 
 Download the `.AppImage` from [Releases](https://github.com/FrogSnot/Sunder/releases):
@@ -141,6 +158,9 @@ sudo pacman -S yt-dlp ffmpeg
 # Ubuntu/Debian
 sudo apt install yt-dlp ffmpeg
 
+# Fedora
+sudo dnf install yt-dlp ffmpeg-free
+
 # macOS
 brew install yt-dlp ffmpeg
 
@@ -148,16 +168,25 @@ brew install yt-dlp ffmpeg
 scoop install yt-dlp ffmpeg
 ```
 
+Fedora provides [yt-dlp](https://packages.fedoraproject.org/pkgs/yt-dlp/yt-dlp/) and [ffmpeg-free](https://packages.fedoraproject.org/pkgs/ffmpeg/ffmpeg-free/) in its repositories. The
+[webkit2gtk4.1](https://packages.fedoraproject.org/pkgs/webkitgtk/webkit2gtk4.1/)
+runtime package is pulled in by the RPM's `libwebkit2gtk-4.1.so.0()(64bit)`
+requirement; the `-devel` package is not needed to run Sunder.
+
+Sunder uses FFmpeg to convert offline downloads to MP3. Fedora's build enables MP3 encoding and Opus, Vorbis, and AAC decoding, but has a restricted codec set. For unsupported codecs, follow RPM Fusion's [repository setup](https://rpmfusion.org/Configuration) and [FFmpeg installation guidance](https://rpmfusion.org/Howto/Multimedia). On Fedora-based distributions, follow your distribution's multimedia package guidance.
+
 For Linux audio output, Sunder routes through PulseAudio / PipeWire-Pulse so it follows your `pavucontrol` default sink. The `alsa-plugins` package provides the `pulse` ALSA PCM that makes this work:
 
 ```bash
 # Arch
 sudo pacman -S alsa-plugins
-# Ubuntu/Debian
-sudo apt install alsa-plugins
+# Ubuntu/Debian (the plugin package is libasound2-plugins; alsa-plugins is the Arch name)
+sudo apt install libasound2-plugins
+# Fedora
+sudo dnf install alsa-plugins-pulseaudio
 ```
 
-PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA, which uses the first enumerated card and may not be the sink you've marked as default in pavucontrol.
+PulseAudio or PipeWire-Pulse must also be running. Without `alsa-plugins` (or if PulseAudio is unreachable), Sunder falls back to raw ALSA, which uses the first enumerated card and may not be the sink you've marked as default in pavucontrol. Both the `.deb` and the `.rpm` ship this plugin package as a *Recommends*, so it is installed by default but can be skipped on a minimal system.
 
 ## Tech Stack
 
