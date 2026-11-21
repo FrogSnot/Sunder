@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import Sidebar from "./lib/components/Sidebar.svelte";
   import SearchBar from "./lib/components/SearchBar.svelte";
   import TrackList from "./lib/components/TrackList.svelte";
@@ -21,7 +22,6 @@
     playNext,
     playPrev,
     playTrack,
-    restoreQueue,
     loadDownloads
   } from "./lib/ipc/bridge";
   import { player } from "./lib/state/player.svelte";
@@ -31,6 +31,13 @@
   import { lyricsState } from "./lib/state/lyrics.svelte";
 
   let cleanup: (() => void) | undefined;
+  let unlistenClose: (() => void) | undefined;
+
+  /** Cap on how long a window close waits for the pending save. */
+  const CLOSE_FLUSH_TIMEOUT_MS = 1500;
+
+  /** Guards the close handler so destroy() cannot re-enter it. */
+  let closing = false;
 
   // TODO: read from persistent config once PR #10 (settings) is merged
   const seekStep = 5;
@@ -38,15 +45,55 @@
 
   onMount(() => {
     cleanup = initProgressListener();
-    config.load().then(() => restoreQueue());
+    config.load().catch(console.error);
     audioRecovery.init().catch(console.error);
     loadDownloads();
     window.addEventListener("keydown", handleKeyDown);
+    initCloseFlush();
     return () => {
       cleanup?.();
+      unlistenClose?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
   });
+
+  /**
+   * Persist the debounced settings before the window closes. Registering the
+   * listener can fail outside a Tauri shell (tests, headless), which must not
+   * break the app, so the failure is logged and ignored.
+   */
+  async function initCloseFlush() {
+    try {
+      const appWindow = getCurrentWindow();
+      unlistenClose = await appWindow.onCloseRequested(async (event) => {
+        event.preventDefault();
+        if (closing) return;
+        closing = true;
+        try {
+          // Never wait indefinitely: a wedged save must not leave the user
+          // with a window that cannot be closed.
+          await Promise.race([
+            config.flush(),
+            new Promise((resolve) => setTimeout(resolve, CLOSE_FLUSH_TIMEOUT_MS)),
+          ]);
+        } catch (e) {
+          console.error("Failed to flush settings before closing:", e);
+        }
+        try {
+          // destroy() bypasses onCloseRequested, so this cannot loop.
+          await appWindow.destroy();
+        } catch (e) {
+          // The close was refused (e.g. the ACL lacks allow-destroy, or the
+          // window is already gone). Release the guard so a later attempt is
+          // not silently swallowed, which would leave the window uncloseable.
+          closing = false;
+          console.error("Failed to close the window:", e);
+        }
+      });
+    } catch (e) {
+      console.error("Window close hook unavailable; settings flush on close disabled:", e);
+    }
+  }
 
   async function handleKeyDown(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
