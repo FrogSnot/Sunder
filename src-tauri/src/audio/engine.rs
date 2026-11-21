@@ -159,17 +159,61 @@ fn ytdlp_bin(app: &tauri::AppHandle) -> String {
     crate::extraction::ytdlp::resolve_bin_for(app)
 }
 
-/// Snapshot the current source position from the epoch tracker.
-/// Returns None when no epoch is active (idle / uninitialized).
-fn current_source_pos_ms(
-    epoch_source_ms: u64,
-    epoch_start: Option<Instant>,
-    epoch_speed: f32,
-) -> Option<u64> {
-    epoch_start.map(|start| {
-        let wall_ms = start.elapsed().as_millis() as u64;
-        epoch_source_ms + (wall_ms as f64 * epoch_speed as f64) as u64
-    })
+/// Estimated media position. An active epoch advances at the playback speed.
+/// A paused epoch holds its last media position, including after a seek.
+struct PositionEpoch {
+    source_ms: u64,
+    started_at: Option<Instant>,
+    speed: f32,
+}
+
+impl Default for PositionEpoch {
+    fn default() -> Self {
+        Self {
+            source_ms: 0,
+            started_at: None,
+            speed: 1.0,
+        }
+    }
+}
+
+impl PositionEpoch {
+    fn start(source_ms: u64, speed: f32, now: Instant) -> Self {
+        Self {
+            source_ms,
+            started_at: Some(now),
+            speed,
+        }
+    }
+
+    fn position_at(&self, now: Instant) -> u64 {
+        let Some(start) = self.started_at else {
+            return self.source_ms;
+        };
+        let wall_ms = now.saturating_duration_since(start).as_millis();
+        self.source_ms
+            .saturating_add((wall_ms as f64 * self.speed as f64) as u64)
+    }
+
+    fn pause(&mut self, now: Instant) -> u64 {
+        self.source_ms = self.position_at(now);
+        self.started_at = None;
+        self.source_ms
+    }
+
+    fn resume(&mut self, now: Instant) {
+        self.started_at.get_or_insert(now);
+    }
+
+    fn seek(&mut self, target_ms: u64, now: Instant) {
+        self.source_ms = target_ms;
+        self.started_at = self.started_at.map(|_| now);
+    }
+
+    fn set_speed(&mut self, speed: f32, now: Instant) {
+        self.seek(self.position_at(now), now);
+        self.speed = speed;
+    }
 }
 
 fn relative_seek_target_ms(
@@ -375,9 +419,7 @@ struct RecoveryContext<'a> {
 
     _stream: &'a mut Option<MixerDeviceSink>,
     stream_handle: &'a mut Option<Mixer>,
-    epoch_source_ms: &'a mut u64,
-    epoch_start: &'a mut Option<Instant>,
-    paused_pos_ms: &'a mut Option<u64>,
+    epoch: &'a mut PositionEpoch,
     active_fade: &'a mut Option<ActiveFade>,
 }
 
@@ -400,15 +442,9 @@ enum RebuildOutcome {
 /// Underrun recovery: freeze epoch at the live speed, drop sink+stream,
 /// rebuild via system default. On CacheCold/ReplaySkipped/StreamFatal: mirror
 /// the LoadFailed arm (set state=Idle, clear active_id, emit playback-error).
-fn attempt_underrun_recovery(ctx: &mut RecoveryContext<'_>, epoch_speed: f32) -> RebuildOutcome {
+fn attempt_underrun_recovery(ctx: &mut RecoveryContext<'_>) -> RebuildOutcome {
     let detected_at = chrono::Utc::now().to_rfc3339();
-    let snapshot_pos_ms = ctx.paused_pos_ms.unwrap_or_else(|| {
-        current_source_pos_ms(*ctx.epoch_source_ms, *ctx.epoch_start, epoch_speed)
-            .unwrap_or(*ctx.epoch_source_ms)
-    });
-    *ctx.epoch_source_ms = snapshot_pos_ms;
-    *ctx.epoch_start = None;
-    *ctx.paused_pos_ms = Some(snapshot_pos_ms);
+    let snapshot_pos_ms = ctx.epoch.pause(Instant::now());
     eprintln!(
         "[sunder-undo] underrun_recovery ts={detected_at} pos={}ms video_id={:?}",
         snapshot_pos_ms, ctx.active_id,
@@ -648,11 +684,8 @@ fn rebuild_stream_and_replay(
 /// helper; audio-device-restored emitted here), false on StreamFatal (state
 /// already transitioned to NoDevice by the inner helper; audio-device-lost
 /// already emitted by the inner helper with the transition guard).
-fn attempt_device_recovery(ctx: &mut RecoveryContext<'_>, epoch_speed: f32) -> bool {
-    let snapshot_pos_ms = ctx.paused_pos_ms.unwrap_or_else(|| {
-        current_source_pos_ms(*ctx.epoch_source_ms, *ctx.epoch_start, epoch_speed)
-            .unwrap_or(*ctx.epoch_source_ms)
-    });
+fn attempt_device_recovery(ctx: &mut RecoveryContext<'_>) -> bool {
+    let snapshot_pos_ms = ctx.epoch.position_at(Instant::now());
     let snapshot_session = ctx.current_session.load(Ordering::SeqCst);
     let replay_id_owned = ctx.active_id.clone();
     let was_playing = ctx.sink.is_some() && ctx.active_id.is_some();
@@ -790,17 +823,8 @@ fn audio_thread(
     let mut last_emit_state: Option<PlaybackState> = None;
     let mut last_emit_pos: u64 = 0;
     let mut last_emit_vol: f32 = 0.0;
-    // Epoch-based position tracking. We derive source position entirely
-    // from wall-clock time, avoiding rodio's get_pos() which mixes
-    // wall-clock and source-time domains depending on speed.
-    //
-    // source_pos = epoch_source_ms + elapsed_since_epoch * epoch_speed
-    //
-    // A new epoch starts on: play, seek, speed change, or resume.
-    let mut epoch_start: Option<Instant> = None;
-    let mut epoch_source_ms: u64 = 0;
-    let mut epoch_speed: f32 = 1.0;
-    let mut paused_pos_ms: Option<u64> = None;
+    // Rodio's get_pos() is speed-adjusted, while the UI expects media time.
+    let mut epoch = PositionEpoch::default();
 
     let mut active_fade: Option<ActiveFade> = None;
 
@@ -835,10 +859,7 @@ fn audio_thread(
                         continue;
                     }
 
-                    let current_ms = paused_pos_ms.unwrap_or_else(|| {
-                        current_source_pos_ms(epoch_source_ms, epoch_start, epoch_speed)
-                            .unwrap_or_else(|| position_ms.load(Ordering::Relaxed))
-                    });
+                    let current_ms = epoch.position_at(Instant::now());
                     let target_ms = relative_seek_target_ms(
                         current_ms,
                         duration_ms.load(Ordering::Relaxed),
@@ -882,12 +903,10 @@ fn audio_thread(
                             sink: &mut sink,
                             _stream: &mut _stream,
                             stream_handle: &mut stream_handle,
-                            epoch_source_ms: &mut epoch_source_ms,
-                            epoch_start: &mut epoch_start,
-                            paused_pos_ms: &mut paused_pos_ms,
+                            epoch: &mut epoch,
                             active_fade: &mut active_fade,
                         };
-                        if !attempt_device_recovery(&mut ctx, epoch_speed) {
+                        if !attempt_device_recovery(&mut ctx) {
                             let _ = app.emit(
                                 "playback-error",
                                 serde_json::json!({
@@ -971,9 +990,7 @@ fn audio_thread(
                     *state.write().unwrap() = PlaybackState::Loading;
                     duration_ms.store(dur, Ordering::Release);
                     position_ms.store(0, Ordering::Release);
-                    epoch_start = None;
-                    epoch_source_ms = 0;
-                    paused_pos_ms = None;
+                    epoch = PositionEpoch::default();
                     active_id = Some(video_id.clone());
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
 
@@ -1093,13 +1110,11 @@ fn audio_thread(
 
                         duration_ms.store(dur, Ordering::Release);
                         position_ms.store(resume_ms, Ordering::Release);
-                        epoch_speed = *speed.read().unwrap();
-                        new_sink.set_speed(epoch_speed);
+                        epoch =
+                            PositionEpoch::start(resume_ms, *speed.read().unwrap(), Instant::now());
+                        new_sink.set_speed(epoch.speed);
                         sink = Some(new_sink);
                         *state.write().unwrap() = PlaybackState::Playing;
-                        epoch_source_ms = resume_ms;
-                        epoch_start = Some(Instant::now());
-                        paused_pos_ms = None;
 
                         active_fade = Some(ActiveFade {
                             start_vol: 0.0,
@@ -1135,13 +1150,6 @@ fn audio_thread(
                 }
                 AudioCommand::Pause => {
                     if let Some(ref s) = sink {
-                        // Snapshot source position before pausing
-                        if let Some(pos) =
-                            current_source_pos_ms(epoch_source_ms, epoch_start, epoch_speed)
-                        {
-                            paused_pos_ms = Some(pos);
-                        }
-                        epoch_start = None;
                         active_fade = Some(ActiveFade {
                             start_vol: s.volume(),
                             target_vol: 0.0,
@@ -1155,11 +1163,9 @@ fn audio_thread(
                     if let Some(ref s) = sink {
                         s.play();
                         *state.write().unwrap() = PlaybackState::Playing;
-                        // Start new epoch from paused position
-                        epoch_source_ms = paused_pos_ms.unwrap_or(0);
-                        epoch_speed = *speed.read().unwrap();
-                        epoch_start = Some(Instant::now());
-                        paused_pos_ms = None;
+                        // Play can also arrive while playing or while a pause
+                        // is fading out. Keep the running epoch in both cases.
+                        epoch.resume(Instant::now());
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
 
                         active_fade = Some(ActiveFade {
@@ -1194,9 +1200,7 @@ fn audio_thread(
                     // playTrack rather than the (no-op) resume arm.
                     *state.write().unwrap() = PlaybackState::Idle;
                     active_id = None;
-                    epoch_start = None;
-                    epoch_source_ms = 0;
-                    paused_pos_ms = None;
+                    epoch = PositionEpoch::default();
                     position_ms.store(0, Ordering::Release);
                     emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
                 }
@@ -1230,7 +1234,7 @@ fn audio_thread(
                         // rodio's Speed::try_seek multiplies pos by the speed factor,
                         // so we pre-divide to get the correct source-time seek position.
                         let source_secs = secs.max(0.0);
-                        let seek_secs = source_secs / epoch_speed as f64;
+                        let seek_secs = source_secs / epoch.speed as f64;
                         // try_from_secs_f64 returns Err on NaN, +Inf, or any
                         // value outside Duration's representable range. The
                         // command input is an arbitrary deserialized f64 that
@@ -1248,13 +1252,7 @@ fn audio_thread(
                             eprintln!("[sunder] seek failed: {e}");
                         } else {
                             let target = (source_secs * 1000.0) as u64;
-                            if paused_pos_ms.is_some() {
-                                paused_pos_ms = Some(target);
-                            } else {
-                                epoch_source_ms = target;
-                                epoch_speed = *speed.read().unwrap();
-                                epoch_start = Some(Instant::now());
-                            }
+                            epoch.seek(target, Instant::now());
                             position_ms.store(target, Ordering::Release);
                         }
                     } else {
@@ -1301,13 +1299,7 @@ fn audio_thread(
                     let clamped = s.clamp(0.25, 3.0);
                     *speed.write().unwrap() = clamped;
                     if let Some(ref sk) = sink {
-                        // Snapshot current source position and start new epoch
-                        if let Some(start) = epoch_start {
-                            let wall_ms = start.elapsed().as_millis() as u64;
-                            epoch_source_ms += (wall_ms as f64 * epoch_speed as f64) as u64;
-                            epoch_start = Some(Instant::now());
-                        }
-                        epoch_speed = clamped;
+                        epoch.set_speed(clamped, Instant::now());
                         sk.set_speed(clamped);
                     } else {
                         // AC6: speed preference still persists above; sink
@@ -1340,12 +1332,10 @@ fn audio_thread(
                         _stream: &mut _stream,
 
                         stream_handle: &mut stream_handle,
-                        epoch_source_ms: &mut epoch_source_ms,
-                        epoch_start: &mut epoch_start,
-                        paused_pos_ms: &mut paused_pos_ms,
+                        epoch: &mut epoch,
                         active_fade: &mut active_fade,
                     };
-                    let _ = attempt_device_recovery(&mut ctx, epoch_speed);
+                    let _ = attempt_device_recovery(&mut ctx);
                 }
             }
         }
@@ -1364,6 +1354,9 @@ fn audio_thread(
                         if let Some(ref s) = sink {
                             s.pause();
                         }
+                        // The sink keeps playing during the fade. Freeze
+                        // progress when the pause is applied to the player.
+                        position_ms.store(epoch.pause(Instant::now()), Ordering::Release);
                         *state.write().unwrap() = PlaybackState::Paused;
                         emit_state(&app, &state, &position_ms, &duration_ms, &volume, &speed);
                     }
@@ -1408,15 +1401,7 @@ fn audio_thread(
 
         let mut track_ended = false;
 
-        // Compute current source position from epoch
-        let cur_source_ms = if let Some(pause_pos) = paused_pos_ms {
-            pause_pos
-        } else if let Some(start) = epoch_start {
-            let wall_ms = start.elapsed().as_millis() as u64;
-            epoch_source_ms + (wall_ms as f64 * epoch_speed as f64) as u64
-        } else {
-            0
-        };
+        let cur_source_ms = epoch.position_at(Instant::now());
         position_ms.store(cur_source_ms, Ordering::Release);
 
         if let Some(ref s) = sink {
@@ -1465,12 +1450,10 @@ fn audio_thread(
                             sink: &mut sink,
                             _stream: &mut _stream,
                             stream_handle: &mut stream_handle,
-                            epoch_source_ms: &mut epoch_source_ms,
-                            epoch_start: &mut epoch_start,
-                            paused_pos_ms: &mut paused_pos_ms,
+                            epoch: &mut epoch,
                             active_fade: &mut active_fade,
                         };
-                        let outcome = attempt_underrun_recovery(&mut ctx, epoch_speed);
+                        let outcome = attempt_underrun_recovery(&mut ctx);
                         // On StreamFatal: helper already transitioned state
                         // to NoDevice (write-guard atomic guard), emitted
                         // audio-device-lost once, cleared active_id. Thread
@@ -1511,9 +1494,7 @@ fn audio_thread(
             active_fade = None;
             *state.write().unwrap() = PlaybackState::Idle;
             active_id = None;
-            epoch_start = None;
-            epoch_source_ms = 0;
-            paused_pos_ms = None;
+            epoch = PositionEpoch::default();
             position_ms.store(0, Ordering::Release);
             let _ = app.emit("track-finished", ());
         }
@@ -1815,6 +1796,65 @@ fn parse_download_pct(line: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_during_playback_keeps_the_running_epoch() {
+        let start = Instant::now();
+        let mut epoch = PositionEpoch::start(45_000, 2.0, start);
+        let resume = start + Duration::from_secs(2);
+
+        epoch.resume(resume);
+        assert_eq!(epoch.position_at(resume), 49_000);
+        assert_eq!(epoch.position_at(resume + Duration::from_secs(1)), 51_000);
+    }
+
+    #[test]
+    fn pause_holds_position_from_the_end_of_the_fade() {
+        let start = Instant::now();
+        let mut epoch = PositionEpoch::start(45_000, 1.0, start);
+        let pause_requested = start + Duration::from_secs(2);
+        let fade_finished = pause_requested + Duration::from_millis(100);
+
+        assert_eq!(epoch.position_at(pause_requested), 47_000);
+        assert_eq!(epoch.pause(fade_finished), 47_100);
+        let resume = fade_finished + Duration::from_secs(30);
+        assert_eq!(epoch.position_at(resume), 47_100);
+        epoch.resume(resume);
+        assert_eq!(epoch.position_at(resume + Duration::from_secs(1)), 48_100);
+    }
+
+    #[test]
+    fn seek_and_speed_changes_keep_the_epoch_continuous() {
+        let start = Instant::now();
+        let mut epoch = PositionEpoch::start(0, 1.0, start);
+        let speed_change = start + Duration::from_secs(2);
+        epoch.set_speed(2.0, speed_change);
+        let pause = speed_change + Duration::from_secs(3);
+        assert_eq!(epoch.pause(pause), 8_000);
+
+        epoch.seek(15_000, pause + Duration::from_secs(1));
+        epoch.set_speed(0.5, pause + Duration::from_secs(2));
+        let resume = pause + Duration::from_secs(3);
+        assert_eq!(epoch.position_at(resume), 15_000);
+        epoch.resume(resume);
+        assert_eq!(epoch.position_at(resume + Duration::from_secs(2)), 16_000);
+    }
+
+    #[test]
+    fn rebuilt_epoch_holds_recovery_position_and_new_play_starts_from_zero() {
+        let start = Instant::now();
+        let mut epoch = PositionEpoch::start(10_000, 2.0, start);
+        let snapshot = epoch.pause(start + Duration::from_secs(1));
+        let prepared = start + Duration::from_secs(4);
+        assert_eq!(epoch.position_at(prepared), snapshot);
+
+        epoch = PositionEpoch::start(snapshot, 2.0, prepared);
+        assert_eq!(epoch.position_at(prepared), 12_000);
+        assert_eq!(epoch.position_at(prepared + Duration::from_secs(1)), 14_000);
+
+        epoch = PositionEpoch::default();
+        assert_eq!(epoch.position_at(prepared), 0);
+    }
 
     #[test]
     fn relative_seek_moves_forward_within_known_duration() {
