@@ -40,7 +40,27 @@ class PlayerState {
   duration = $state(0);
   volume = $state(0.8);
   speed = $state(1.0);
-  queue = $state<Track[]>([]);
+  /**
+   * Backing field for the queue. Private so every replacement goes through the
+   * accessor pair below - that is what makes `queueGeneration` trustworthy.
+   * Nothing mutates this array in place (verified: no push/splice/shift/
+   * unshift/sort/reverse on the queue anywhere in src/), so a single setter
+   * sees every change.
+   */
+  #queue = $state<Track[]>([]);
+  /**
+   * Bumped on every whole-queue replacement. Async work that captured the queue
+   * before an await (restoreQueue) re-reads this afterwards and discards its
+   * result when the queue changed underneath it.
+   */
+  queueGeneration = $state(0);
+  get queue(): Track[] {
+    return this.#queue;
+  }
+  set queue(next: Track[]) {
+    this.#queue = next;
+    this.queueGeneration++;
+  }
   queueIndex = $state(-1);
   shuffled = $state(false);
   playbackState = $state("idle");

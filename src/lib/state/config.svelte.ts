@@ -124,6 +124,16 @@ class ConfigState {
         // ahead of the 300ms debounce it would otherwise race.
         void restoreAttempt
           .then((late) => {
+            // A discarded late result must be ignored outright: the generation
+            // guard proved the user already replaced the queue, so that queue
+            // is the one to keep saving. Re-arming preservation here would
+            // freeze their deliberate choice out of config.json.
+            if (late.discarded) {
+              console.warn(
+                "Late restore was discarded: the queue was replaced while it was in flight",
+              );
+              return;
+            }
             if (isPartialRestore(late.requested, late.restored)) {
               this.queuePreserve = preserveStateFor(player.queue.map((t) => t.id));
               console.warn(
@@ -134,6 +144,11 @@ class ConfigState {
           .catch(() => {
             // Already reported above; a late failure must not go unhandled.
           });
+      } else if (outcome.discarded) {
+        // The queue changed while the restore was in flight, so restoreQueue
+        // wrote nothing at all. The queue now belongs to the user: do NOT arm
+        // preservation (their new queue SHOULD be persisted) and do not warn
+        // (nothing was lost - the saved queue was simply superseded).
       } else if (isPartialRestore(outcome.requested, outcome.restored)) {
         // Some saved tracks are no longer in the local library. Autosave would
         // otherwise persist the shorter list and lose them permanently.

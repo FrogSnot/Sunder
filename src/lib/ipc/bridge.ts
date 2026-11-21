@@ -272,14 +272,32 @@ export interface QueueRestoreResult {
   requested: number;
   /** Tracks the local library could actually supply. */
   restored: number;
+  /**
+   * True when the restore was abandoned because the queue changed while
+   * get_tracks_by_ids was in flight. Nothing was written: the user's queue,
+   * index and current track all stand as the user left them.
+   */
+  discarded: boolean;
 }
 
 export async function restoreQueue(): Promise<QueueRestoreResult> {
   const { saved_queue, saved_queue_index } = config.current;
   const requested = saved_queue?.length ?? 0;
-  if (!requested) return { requested: 0, restored: 0 };
+  if (!requested) return { requested: 0, restored: 0, discarded: false };
+  // Snapshot the generation BEFORE the await. Every whole-queue replacement
+  // (playing an album, clearing, shuffling, reordering) goes through the
+  // player.queue setter and bumps it, so a changed value proves the user
+  // replaced the queue while this restore was in flight.
+  const generation = player.queueGeneration;
   const tracks = await getTracksByIds(saved_queue);
-  if (tracks.length === 0) return { requested, restored: 0 };
+  // Discard before ANY write. load() races this against a timeout and turns
+  // autosave on when it fires, so by now the user may already have a queue of
+  // their own; overwriting it here would silently revert their choice and the
+  // debounced save would then persist the stale queue over theirs.
+  if (player.queueGeneration !== generation) {
+    return { requested, restored: 0, discarded: true };
+  }
+  if (tracks.length === 0) return { requested, restored: 0, discarded: false };
   player.queue = tracks;
   // The saved index points into the ORIGINAL queue. get_tracks_by_ids drops
   // ids missing from the local library, so that offset no longer addresses the
@@ -293,9 +311,10 @@ export async function restoreQueue(): Promise<QueueRestoreResult> {
   if (player.queueIndex >= 0) {
     player.currentTrack = tracks[player.queueIndex];
   }
-  // Restore a persisted playlist context if it still matches the queue.
+  // Restore a persisted playlist context if it still matches the queue. Only
+  // reached when the result was actually applied.
   player.restorePersistedContext();
-  return { requested, restored: tracks.length };
+  return { requested, restored: tracks.length, discarded: false };
 }
 
 export interface UpdateInfo {
