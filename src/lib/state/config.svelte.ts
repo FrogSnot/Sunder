@@ -197,6 +197,17 @@ class ConfigState {
     this.enqueueSave(() => next);
   }
 
+  /**
+   * Persist the current player state immediately instead of waiting out the
+   * 300ms debounce. Returns the promise for the whole queued save chain so a
+   * caller (the window close handler) can wait for it to settle.
+   */
+  flush(): Promise<void> {
+    clearTimeout(saveTimer);
+    if (!this.loaded) return this.pendingSave;
+    this.update(playerPatch());
+    return this.pendingSave;
+  }
 }
 
 export const config = new ConfigState();
@@ -204,20 +215,30 @@ export const config = new ConfigState();
 // Debounced watcher: persist player state changes with 300ms delay
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * The player-owned slice of AppConfig. Read under the current effect / call so
+ * both the debounced watcher and flush() persist exactly the same fields.
+ */
+function playerPatch(): Partial<AppConfig> {
+  return {
+    volume: player.volume,
+    eq_enabled: player.eqEnabled,
+    eq_gains: $state.snapshot(player.eqGains),
+    saved_queue: player.queue.map((t) => t.id),
+    saved_queue_index: player.queueIndex,
+    repeat_mode: player.repeatMode,
+    playback_speed: player.speed,
+  };
+}
+
 $effect.root(() => {
   $effect(() => {
     if (!config.loaded) return;
-    const volume = player.volume;
-    const eq_enabled = player.eqEnabled;
-    const eq_gains = $state.snapshot(player.eqGains);
-    const saved_queue = player.queue.map(t => t.id);
-    const saved_queue_index = player.queueIndex;
-    const repeat_mode = player.repeatMode;
-    const playback_speed = player.speed;
+    const patch = playerPatch();
 
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      config.update({ volume, eq_enabled, eq_gains, saved_queue, saved_queue_index, repeat_mode, playback_speed });
+      config.update(patch);
     }, 300);
   });
 });
