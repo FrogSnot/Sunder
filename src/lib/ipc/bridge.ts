@@ -5,6 +5,7 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, SearchResult, PlaybackProgress, Playlist, ExploreData, EqSettings, DownloadEvent } from "../types";
 import { player } from "../state/player.svelte";
 import { config } from "../state/config.svelte";
+import { clampQueueIndex } from "../util/queuePreserve";
 import { lyricsState, parseLrc } from "../state/lyrics.svelte";
 import { downloads } from "../state/downloads.svelte";
 
@@ -266,18 +267,35 @@ export async function loadDownloads(): Promise<void> {
   }
 }
 
-export async function restoreQueue(): Promise<void> {
+export interface QueueRestoreResult {
+  /** Ids the saved queue asked for. */
+  requested: number;
+  /** Tracks the local library could actually supply. */
+  restored: number;
+}
+
+export async function restoreQueue(): Promise<QueueRestoreResult> {
   const { saved_queue, saved_queue_index } = config.current;
-  if (!saved_queue?.length) return;
+  const requested = saved_queue?.length ?? 0;
+  if (!requested) return { requested: 0, restored: 0 };
   const tracks = await getTracksByIds(saved_queue);
-  if (tracks.length === 0) return;
+  if (tracks.length === 0) return { requested, restored: 0 };
   player.queue = tracks;
-  player.queueIndex = Math.min(Math.max(saved_queue_index ?? -1, -1), tracks.length - 1);
+  // The saved index points into the ORIGINAL queue. get_tracks_by_ids drops
+  // ids missing from the local library, so that offset no longer addresses the
+  // same track once the queue shrinks: resolve the wanted track by id first and
+  // only fall back to clamping when the track itself is gone.
+  const savedIndex = clampQueueIndex(saved_queue_index ?? -1, requested);
+  const wanted = savedIndex >= 0 ? saved_queue[savedIndex] : undefined;
+  const restoredIndex = wanted ? tracks.findIndex((t) => t.id === wanted) : -1;
+  player.queueIndex =
+    restoredIndex >= 0 ? restoredIndex : clampQueueIndex(savedIndex, tracks.length);
   if (player.queueIndex >= 0) {
     player.currentTrack = tracks[player.queueIndex];
   }
   // Restore a persisted playlist context if it still matches the queue.
   player.restorePersistedContext();
+  return { requested, restored: tracks.length };
 }
 
 export interface UpdateInfo {
