@@ -76,8 +76,38 @@ pub struct ConfigManager {
     writer: Mutex<()>,
 }
 
+/// Name pattern of the temp files `replace_config` writes: `config.json.<pid>.<n>.tmp`.
+const TEMP_PREFIX: &str = "config.json.";
+const TEMP_SUFFIX: &str = ".tmp";
+
+/// Delete temp files orphaned when a process died between writing the temp file
+/// and renaming it into place. Best effort: a directory that cannot be read is
+/// left alone and per-file errors are ignored. The match is deliberately narrow
+/// (prefix AND suffix AND a non-empty middle) so unrelated files in the data
+/// directory are never removed.
+fn remove_orphaned_temp_configs(data_dir: &Path) {
+    let Ok(entries) = fs::read_dir(data_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.len() > TEMP_PREFIX.len() + TEMP_SUFFIX.len()
+            && name.starts_with(TEMP_PREFIX)
+            && name.ends_with(TEMP_SUFFIX)
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 impl ConfigManager {
     pub fn new(data_dir: &Path) -> Self {
+        // A previous process may have died between writing a temp file and the
+        // rename, which would otherwise leave it orphaned forever.
+        remove_orphaned_temp_configs(data_dir);
         let path = data_dir.join("config.json");
         let config = fs::read_to_string(&path)
             .ok()
@@ -201,6 +231,26 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn construction_removes_orphaned_temp_files() {
+        let dir = TestDir::new();
+        let config_path = dir.0.join("config.json");
+        let contents = br#"{"volume":0.2}"#;
+        fs::write(&config_path, contents).unwrap();
+        let orphan = dir.0.join("config.json.12345.0.tmp");
+        fs::write(&orphan, b"partial write").unwrap();
+        // Not the temp-file shape: must survive the sweep.
+        let unrelated = dir.0.join("config.json.bak");
+        fs::write(&unrelated, b"keep me").unwrap();
+
+        let manager = ConfigManager::new(&dir.0);
+
+        assert!(!orphan.exists(), "orphaned temp file should be removed");
+        assert!(unrelated.exists(), "unrelated file must be left alone");
+        assert_eq!(fs::read(&config_path).unwrap(), contents);
+        assert_eq!(manager.get().volume, 0.2);
     }
 
     #[test]
