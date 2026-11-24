@@ -172,6 +172,20 @@ struct PositionEpoch {
     speed: f32,
 }
 
+#[derive(Clone, Copy)]
+struct UnderrunSnapshot {
+    started_at: Instant,
+    position_ms: u64,
+}
+
+impl UnderrunSnapshot {
+    fn freeze(self, epoch: &mut PositionEpoch) -> u64 {
+        epoch.source_ms = self.position_ms;
+        epoch.started_at = None;
+        self.position_ms
+    }
+}
+
 impl Default for PositionEpoch {
     fn default() -> Self {
         Self {
@@ -448,10 +462,10 @@ enum RebuildOutcome {
 /// the LoadFailed arm (set state=Idle, clear active_id, emit playback-error).
 fn attempt_underrun_recovery(
     ctx: &mut RecoveryContext<'_>,
-    underrun_started: Instant,
+    snapshot: UnderrunSnapshot,
 ) -> RebuildOutcome {
     let detected_at = chrono::Utc::now().to_rfc3339();
-    let snapshot_pos_ms = ctx.epoch.pause(underrun_started);
+    let snapshot_pos_ms = snapshot.freeze(ctx.epoch);
     eprintln!(
         "[sunder-undo] underrun_recovery ts={detected_at} pos={}ms video_id={:?}",
         snapshot_pos_ms, ctx.active_id,
@@ -768,7 +782,7 @@ fn audio_thread(
     let mut stream_handle: Option<Mixer> = init_handle;
     eprintln!("[sunder] audio thread started idle; output will be acquired on Play");
     let mut active_id: Option<String> = None;
-    let mut underrun_held_since: Option<Instant> = None;
+    let mut underrun = None;
     let mut last_recovery_at: Option<Instant> = None;
     let mut sink: Option<Player> = None;
 
@@ -884,6 +898,18 @@ fn audio_thread(
                 }
                 other => other,
             };
+
+            if matches!(
+                cmd,
+                AudioCommand::Play { .. }
+                    | AudioCommand::Stop
+                    | AudioCommand::Pause
+                    | AudioCommand::Resume
+                    | AudioCommand::Seek(_)
+                    | AudioCommand::RetryDevice
+            ) {
+                underrun = None;
+            }
 
             match cmd {
                 AudioCommand::Play {
@@ -1104,6 +1130,7 @@ fn audio_thread(
                         else {
                             continue;
                         };
+                        underrun = None;
                         if let Some(s) = sink.take() {
                             s.stop();
                         }
@@ -1146,6 +1173,7 @@ fn audio_thread(
                     error,
                 } => {
                     if session_id == current_session.load(Ordering::SeqCst) {
+                        underrun = None;
                         *state.write().unwrap() = PlaybackState::Idle;
                         active_id = None;
                         epoch.pause(Instant::now());
@@ -1421,7 +1449,8 @@ fn audio_thread(
 
         let mut track_ended = false;
 
-        let cur_source_ms = epoch.position_at(Instant::now());
+        let now = Instant::now();
+        let cur_source_ms = epoch.position_at(now);
         position_ms.store(cur_source_ms, Ordering::Release);
 
         if let Some(ref s) = sink {
@@ -1439,7 +1468,7 @@ fn audio_thread(
                     track_ended = true;
                 }
                 // Buffer has samples: any pending underrun grace is stale.
-                underrun_held_since = None;
+                underrun = None;
             } else {
                 // s.empty(): could be natural end-of-track OR mid-track underrun.
                 let dur = duration_ms.load(Ordering::Relaxed);
@@ -1448,13 +1477,15 @@ fn audio_thread(
                     // Mid-track underrun candidate: sink buffer is empty but
                     // we are at least 5s short of the natural end. Hold for
                     // 2s wall-clock before dispatching recovery.
-                    if underrun_held_since.is_none() {
-                        underrun_held_since = Some(Instant::now());
-                    }
-                    let held = underrun_held_since.unwrap();
+                    let snapshot = *underrun.get_or_insert(UnderrunSnapshot {
+                        started_at: now,
+                        position_ms: cur_source_ms,
+                    });
                     let cooldown_ok =
                         last_recovery_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(30));
-                    if held.elapsed() >= Duration::from_secs(2) && cooldown_ok {
+                    if now.duration_since(snapshot.started_at) >= Duration::from_secs(2)
+                        && cooldown_ok
+                    {
                         active_fade = None;
                         let mut ctx = RecoveryContext {
                             tx: &tx,
@@ -1473,30 +1504,30 @@ fn audio_thread(
                             epoch: &mut epoch,
                             active_fade: &mut active_fade,
                         };
-                        let outcome = attempt_underrun_recovery(&mut ctx, held);
+                        let outcome = attempt_underrun_recovery(&mut ctx, snapshot);
                         // On StreamFatal: helper already transitioned state
                         // to NoDevice (write-guard atomic guard), emitted
                         // audio-device-lost once, cleared active_id. Thread
                         // stays alive; the next Play triggers
                         // attempt_device_recovery at the NoDevice gate.
                         let _ = outcome;
-                        underrun_held_since = None;
+                        underrun = None;
                         last_recovery_at = Some(Instant::now());
                         // Recovery handles state; do NOT mark track_ended.
                     }
                 } else if st == PlaybackState::Playing {
                     // Natural end-of-track (within 5s of duration or unknown dur).
-                    underrun_held_since = None;
+                    underrun = None;
                     eprintln!("[sunder] track finished");
                     track_ended = true;
                 } else {
                     // state != Playing: clear grace timer.
-                    underrun_held_since = None;
+                    underrun = None;
                 }
             }
         } else {
             // sink is None: nothing to underrun on. Clear grace.
-            underrun_held_since = None;
+            underrun = None;
         }
 
         if track_ended {
@@ -1929,19 +1960,29 @@ mod tests {
     }
 
     #[test]
-    fn rebuilt_epoch_holds_recovery_position_and_new_play_starts_from_zero() {
+    fn underrun_recovery_holds_onset_position_even_if_speed_changes() {
         let start = Instant::now();
-        let mut epoch = PositionEpoch::start(10_000, 2.0, start);
-        let snapshot = epoch.pause(start + Duration::from_secs(1));
+        let started_at = start + Duration::from_secs(1);
         let prepared = start + Duration::from_secs(4);
-        assert_eq!(epoch.position_at(prepared), snapshot);
-
-        epoch = PositionEpoch::start(snapshot, 2.0, prepared);
-        assert_eq!(epoch.position_at(prepared), 12_000);
-        assert_eq!(epoch.position_at(prepared + Duration::from_secs(1)), 14_000);
-
-        epoch = PositionEpoch::default();
-        assert_eq!(epoch.position_at(prepared), 0);
+        for speed in [None, Some(0.5), Some(3.0)] {
+            let mut epoch = PositionEpoch::start(10_000, 2.0, start);
+            let snapshot = UnderrunSnapshot {
+                started_at,
+                position_ms: epoch.position_at(started_at),
+            };
+            if let Some(speed) = speed {
+                epoch.set_speed(speed, started_at + Duration::from_millis(750));
+                assert_eq!(epoch.position_at(started_at), 13_500);
+            }
+            assert_eq!(snapshot.freeze(&mut epoch), 12_000);
+            assert_eq!(epoch.position_at(prepared), 12_000);
+            epoch.resume(prepared);
+            assert_eq!(
+                epoch.position_at(prepared + Duration::from_secs(1)),
+                12_000 + (speed.unwrap_or(2.0) * 1000.0) as u64,
+            );
+        }
+        assert_eq!(PositionEpoch::default().position_at(prepared), 0);
     }
 
     #[test]
